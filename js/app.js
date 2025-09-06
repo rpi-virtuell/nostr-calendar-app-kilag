@@ -172,13 +172,20 @@ els.btnBunker.addEventListener('click', async (ev)=>{
   const oldTxt = els.btnBunker.textContent;
   els.btnBunker.textContent = 'Verbinde…';
 
+  // Safety-Recover nach 13s
+  let safety = setTimeout(()=>{
+    els.btnBunker.disabled = false;
+    els.btnBunker.textContent = oldTxt;
+  }, 13000);
+
   try {
-    const res = await client.connectBunker(uri, { openAuth: true });
+    const res = await client.connectBunker(uri, { openAuth: false });
     els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
   } catch (err) {
     console.error('[Bunker] connect error:', err);
     alert('Bunker-Verbindung fehlgeschlagen.');
   } finally {
+    clearTimeout(safety);
     els.btnBunker.disabled = false;
     els.btnBunker.textContent = oldTxt;
     if (typeof updateAuthUI === 'function') updateAuthUI();
@@ -211,9 +218,13 @@ updateAuthUI();
 
 async function autoReconnectBunker(){
   const uri = localStorage.getItem('nip46_connect_uri');
-  if(!uri || (client && client.signer)) return;
+  if (!uri || (window.nostrClient && window.nostrClient.signer)) {
+    updateAuthUI();
+    return;
+  }
   try {
-    const res = await client.connectBunker(uri, { openAuth: false });
+    // wichtig: diesmal openAuth: true, damit wir die auth_url sehen
+    const res = await window.nostrClient.connectBunker(uri, { openAuth: true });
     els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
   } catch (e) {
     console.warn('autoReconnectBunker:', e);
@@ -339,15 +350,17 @@ window.addEventListener('nip46-connected', (e)=>{
   if (pk) els.whoami.textContent = `pubkey: ${pk.slice(0,8)}… (nip46)`;
   updateAuthUI();
 });
+// Auto-Reconnect braucht ggf. eine Auth-URL -> Tab gezielt öffnen
 window.addEventListener('nip46-auth-url', (e)=>{
   const url = e.detail?.url;
   if (!url) return;
   const w = window.open(url, '_blank', 'noopener,noreferrer');
-  if(!w){
+  if (!w) {
     navigator.clipboard?.writeText(url).catch(()=>{});
     alert('Bitte Autorisierungs-URL manuell öffnen (Link in Zwischenablage):\n' + url);
   }
 });
+
 // FILTERS
 function chip(label){
   const c = document.createElement('span');
