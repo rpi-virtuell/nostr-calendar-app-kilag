@@ -399,7 +399,14 @@ function openModalForNew(){
   document.getElementById('modal-title').textContent = 'Neuer Termin';
   els.modal.showModal();
 }
-function openModalForEdit(evt){
+async function openModalForEdit(evt){
+  // check evt.pubkey against logged-in user
+  // but promise status is pending here, so we need to await
+  const userPubKey = await client.signer.getPublicKey();
+  if(evt.pubkey && client && client.signer && evt.pubkey !==  userPubKey){
+    alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+    return;
+  }
   fillFormFromEvent(evt);
   els.btnDelete.classList.remove('hidden');
   document.getElementById('modal-title').textContent = 'Termin bearbeiten';
@@ -591,6 +598,11 @@ function renderCurrentView(){
     if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
     monthView.render(data);
   } else {
+    data.sort((a,b)=> {
+      const aS = Number(a.tags.find(t=>t[0]==='starts')?.[1]||0);
+      const bS = Number(b.tags.find(t=>t[0]==='starts')?.[1]||0);
+      return aS - bS;
+    });
     // Kartenansicht: Month verstecken, Grid zeigen
     els.monthGrid.classList.add('hidden');
     els.grid.classList.remove('hidden');
