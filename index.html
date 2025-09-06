@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nostr Calendar (NIP-52) — Demo App</title>
+  <meta name="description" content="Erstellen, posten und aktualisieren Sie Nostr Kalender-Events (Kind 31923, NIP‑52)."/>
+  <link rel="stylesheet" href="./css/themes.css">
+  <link rel="stylesheet" href="./css/base.css">
+</head>
+<body class="theme-light">
+  <header class="app-header">
+    <h1>Aktuelle Termine</h1>
+    <div class="spacer"></div>
+    <div class="view-switch">
+      <button id="btn-view-cards" class="btn btn-ghost">Karten</button>
+      <button id="btn-view-month" class="btn btn-ghost">Monat</button>
+    </div>
+    <div id="auth-box" class="auth-box">
+      <button id="btn-login" class="btn">Mit Nostr einloggen</button>
+      <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
+      <div id="whoami" class="whoami"></div>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <div class="toolbar-row">
+      <div class="field">
+        <label>Tags</label>
+        <input id="tag-search" placeholder="Tag suchen & Enter zum Hinzufügen" />
+        <div id="selected-tags" class="chips"></div>
+      </div>
+      <div class="field">
+        <label>Suche</label>
+        <input id="text-search" placeholder="Titel & Tags durchsuchen…" />
+      </div>
+      <div class="field">
+        <label>Monat</label>
+        <select id="month-select">
+          <option value="">Alle Monate</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Theme</label>
+        <select id="theme-select">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <button id="btn-new" class="btn btn-primary">Neuer Termin</button>
+      <button id="btn-ics-import" class="btn">ICS importieren</button>
+      <button id="btn-ics-export" class="btn">ICS exportieren</button>
+      <button id="btn-bunker" class="btn">Bunker verbinden</button>
+      <button id="btn-media" class="btn">Media</button>
+      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
+    </div>
+  </section>
+
+  <main>
+    <div id="result-info" class="result-info">–</div>
+    <div id="grid" class="grid"></div>
+    <div id="month-grid" class="month-grid hidden"></div>
+  </main>
+
+  <!-- Modal: Edit/Create -->
+  <dialog id="event-modal" class="modal">
+    <form method="dialog" id="event-form" class="event-form">
+      <header class="modal-header">
+        <h2 id="modal-title">Kalendereintrag</h2>
+        <button id="close-modal" class="btn btn-ghost" value="cancel" title="Schließen">✕</button>
+      </header>
+      <div class="form-grid">
+        <div class="col">
+          <label>Titel</label>
+          <input id="f-title" required />
+        </div>
+        <div class="col">
+          <label>Beginn</label>
+          <input id="f-starts" type="datetime-local" required />
+        </div>
+        <div class="col">
+          <label>Ende</label>
+          <input id="f-ends" type="datetime-local" required />
+        </div>
+        <div class="col">
+          <label>Status</label>
+          <select id="f-status">
+            <option value="planned">geplant</option>
+            <option value="cancelled">abgesagt</option>
+            <option value="movedOnline">online verlegt</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>Ort / Location</label>
+          <input id="f-location" placeholder="z. B. Zoom: https://… / Haus XY, Raum 1"/>
+        </div>
+        <div class="col">
+          <label>Bild-URL</label>
+          <input id="f-image" placeholder="https://…" />
+          <div class="row gap">
+            <input id="f-image-file" type="file" accept="image/*" />
+            <button id="btn-upload" class="btn btn-ghost" type="button">Upload » URL einfügen</button>
+          </div>
+        </div>
+        <div class="col col-2">
+          <label>Zusammenfassung</label>
+          <textarea id="f-summary" rows="2" placeholder="Kurze Beschreibung…"></textarea>
+        </div>
+        <div class="col col-2">
+          <label>Inhalt (Markdown)</label>
+          <div class="md-toolbar">
+            <button type="button" data-md="bold" class="btn btn-ghost">B</button>
+            <button type="button" data-md="italic" class="btn btn-ghost"><i>I</i></button>
+            <button type="button" data-md="link" class="btn btn-ghost">🔗</button>
+            <button type="button" data-md="image" class="btn btn-ghost">🖼</button>
+            <button type="button" id="btn-preview" class="btn btn-ghost">Vorschau</button>
+          </div>
+          <textarea id="f-content" rows="10" placeholder="**Fettschrift** _kursiv_ [Link](https://)…"></textarea>
+          <div id="md-preview" class="md-preview hidden"></div>
+        </div>
+        <div class="col col-2">
+          <label>Tags (mit Enter bestätigen)</label>
+          <input id="f-tags" placeholder="z. B. BNE, Interreligiöses, …"/>
+          <div id="chips-edit" class="chips"></div>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <div class="left">
+          <button id="btn-delete" class="btn btn-danger hidden" type="button">Als abgesagt markieren</button>
+        </div>
+        <div class="right">
+          <button class="btn" value="cancel">Abbrechen</button>
+          <button id="btn-save" class="btn btn-primary" value="default">Speichern & veröffentlichen</button>
+        </div>
+      </footer>
+      <input type="hidden" id="f-dtag" />
+      <input type="hidden" id="f-id" />
+    </form>
+  </dialog>
+
+  <!-- Modal: Blossom Manager -->
+  <dialog id="blossom-modal" class="modal">
+    <header class="modal-header">
+      <h2>Blossom Media</h2>
+      <button id="close-blossom" class="btn btn-ghost" title="Schließen">✕</button>
+    </header>
+    <div class="p-16">
+      <div class="row gap" style="margin-bottom:10px">
+        <label>Typ</label>
+        <select id="blossom-filter-type">
+          <option value="">Alle</option>
+          <option value="image">Bilder</option>
+          <option value="video">Videos</option>
+          <option value="audio">Audio</option>
+          <option value="other">Andere</option>
+        </select>
+        <label>Größe min (KB)</label>
+        <input id="blossom-size-min" type="number" style="max-width:120px" />
+        <label>max</label>
+        <input id="blossom-size-max" type="number" style="max-width:120px" />
+        <label>Seite</label>
+        <button id="blossom-prev" class="btn btn-ghost">←</button>
+        <span id="blossom-pageinfo" class="muted">1/1</span>
+        <button id="blossom-next" class="btn btn-ghost">→</button>
+        <label>Pro Seite</label>
+        <select id="blossom-pagesize">
+          <option>10</option>
+          <option selected>25</option>
+          <option>50</option>
+        </select>
+      </div>
+      <div id="blossom-drop" class="dropzone">Dateien hier ablegen oder klicken, um auszuwählen…</div>
+      <div class="row gap" style="margin-bottom:10px">
+        <button id="btn-blossom-refresh" class="btn">Liste aktualisieren</button>
+        <span class="muted" id="blossom-info">–</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="blossom-table">
+          <thead><tr><th>Preview</th><th>Datei</th><th>Größe</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </dialog>
+
+  <template id="card-tpl">
+    <article class="card">
+      <div class="card-cover"></div>
+      <div class="card-badge"></div>
+      <div class="card-body">
+        <h3 class="card-title"></h3>
+        <div class="meta">
+          <span class="when"></span>
+          <span class="where"></span>
+        </div>
+        <p class="summary"></p>
+        <div class="tags"></div>
+        <div class="actions">
+          <button class="btn btn-ghost btn-small edit">Bearbeiten</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <!-- Progress Modal -->
+  <dialog id="progress-modal" class="modal">
+    <header class="modal-header"><h2>Veröffentliche…</h2></header>
+    <div class="p-16">
+      <div class="progress"><div class="bar" id="progress-bar" style="width:0%"></div></div>
+      <div id="progress-text" class="muted" style="margin-top:8px">0%</div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
