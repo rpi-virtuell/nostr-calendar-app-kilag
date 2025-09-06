@@ -10,21 +10,36 @@
 </head>
 <body class="theme-light">
   <header class="app-header">
-    <h1>Aktuelle Termine</h1>
+    <h1>Nostr Calendar</h1>
     <div class="spacer"></div>
+
+    <!-- View-Switch -->
     <div class="view-switch">
       <button id="btn-view-cards" class="btn btn-ghost">Karten</button>
       <button id="btn-view-month" class="btn btn-ghost">Monat</button>
     </div>
+
+    <!-- Top-Actions (im Header) -->
+    <div class="top-actions" style="display:flex; gap:8px; margin:0 12px;">
+      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
+      <button id="btn-new" class="btn btn-primary" title="Neuen Termin anlegen">Neuer Termin</button>
+      <button id="btn-ics-import" class="btn">ICS importieren</button>
+      <button id="btn-ics-export" class="btn">ICS exportieren</button>
+      <button id="btn-media" class="btn">Media</button>
+    </div>
+
+    <!-- Auth -->
     <div id="auth-box" class="auth-box">
       <button id="btn-login" class="btn">Mit Nostr einloggen</button>
+      <button id="btn-bunker" class="btn">Bunker verbinden</button>
       <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
       <div id="whoami" class="whoami"></div>
     </div>
   </header>
 
-  <section class="toolbar">
-    <div class="toolbar-row">
+    <!-- Nur noch die Filter in der Toolbar (wird in Monatsansicht versteckt) -->
+  <section class="toolbar" id="toolbar">
+    <div class="toolbar-row" id="filter-row">
       <div class="field">
         <label>Tags</label>
         <input id="tag-search" placeholder="Tag suchen & Enter zum Hinzufügen" />
@@ -48,14 +63,8 @@
           <option value="custom">Custom</option>
         </select>
       </div>
-      <button id="btn-new" class="btn btn-primary">Neuer Termin</button>
-      <button id="btn-ics-import" class="btn">ICS importieren</button>
-      <button id="btn-ics-export" class="btn">ICS exportieren</button>
-      <button id="btn-bunker" class="btn">Bunker verbinden</button>
-      <button id="btn-media" class="btn">Media</button>
-      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
     </div>
-  </section>
+</section>
 
   <main>
     <div id="result-info" class="result-info">–</div>

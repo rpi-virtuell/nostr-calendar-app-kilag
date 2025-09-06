@@ -1,5 +1,6 @@
 import { Config } from './config.js';
 import { client } from './nostr.js';
+window.nostrClient = client; // Debug-Haken für die Konsole
 import { renderGrid, buildMonthOptions } from './views/list.js';
 import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips } from './views/form.js';
 import { mdToHtml } from './utils.js';
@@ -61,7 +62,10 @@ const els = {
   progressModal: document.getElementById('progress-modal'),
   progressBar: document.getElementById('progress-bar'),
   progressText: document.getElementById('progress-text'),
+  toolbar: document.getElementById('toolbar'),
+  filterRow: document.getElementById('filter-row'),
 };
+let currentView = localStorage.getItem('view') || 'cards';
 
 // THEME
 function applyTheme(name){
@@ -76,24 +80,149 @@ applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
 els.btnLogin.addEventListener('click', async ()=>{
   const res = await client.login();
   els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (${res.method})`;
-  els.btnLogin.classList.add('hidden');
-  els.btnLogout.classList.remove('hidden');
+  updateAuthUI();
+  // els.btnLogin.classList.add('hidden');
+  // els.btnLogout.classList.remove('hidden');
 });
 
-els.btnBunker.addEventListener('click', async ()=>{
-  const uri = prompt('NIP-46 Connect-URI (bunker://… oder nostrconnect://…):', (localStorage.getItem('nip46_connect_uri')||''));
-  if(!uri) return;
-  localStorage.setItem('nip46_connect_uri', uri);
-  try{
-    const res = await client.connectBunker(uri);
+// Bunker
+// ---- Bunker Connect Modal (ersetzt prompt) ----
+function ensureBunkerModal(){
+  if (document.getElementById('bunker-modal')) return;
+
+  const dlg = document.createElement('dialog');
+  dlg.id = 'bunker-modal';
+  dlg.className = 'modal';
+  dlg.innerHTML = `
+    <form method="dialog" style="padding:16px; min-width: min(560px, 96vw)">
+      <header class="modal-header">
+        <h2 style="margin:0">Bunker verbinden</h2>
+        <button class="btn btn-ghost" value="cancel" title="Schließen">✕</button>
+      </header>
+      <div class="p-16" style="display:grid; gap:10px">
+        <label for="bunker-uri">NIP-46 Connect-URI (bunker://… oder nostrconnect://…)</label>
+        <input id="bunker-uri" placeholder="bunker://… / nostrconnect://…" style="padding:10px;border:1px solid var(--border);border-radius:10px" />
+        <div style="display:flex; gap:8px">
+          <button id="bunker-paste" type="button" class="btn">Aus Zwischenablage einfügen</button>
+          <span class="muted" id="bunker-hint"></span>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <div></div>
+        <div>
+          <button class="btn" value="cancel">Abbrechen</button>
+          <button class="btn btn-primary" id="bunker-ok" value="default">Verbinden</button>
+        </div>
+      </footer>
+    </form>
+  `;
+  document.body.appendChild(dlg);
+
+  // Paste-Button
+  dlg.querySelector('#bunker-paste').addEventListener('click', async ()=>{
+    try{
+      const t = await navigator.clipboard.readText();
+      if(t){ dlg.querySelector('#bunker-uri').value = t.trim(); }
+    }catch(e){
+      dlg.querySelector('#bunker-hint').textContent = 'Zwischenablage nicht verfügbar.';
+    }
+  });
+}
+
+// Promise-basierte Abfrage
+function getBunkerURIInteractive({preset='' } = {}){
+  ensureBunkerModal();
+  const dlg = document.getElementById('bunker-modal');
+  const input = dlg.querySelector('#bunker-uri');
+  const hint  = dlg.querySelector('#bunker-hint');
+  input.value = preset || '';
+
+  return new Promise((resolve)=>{
+    const onClose = (ev)=>{
+      dlg.removeEventListener('close', onClose);
+      const v = (dlg.returnValue === 'default') ? input.value.trim() : '';
+      resolve(v || '');
+    };
+    dlg.addEventListener('close', onClose);
+    hint.textContent = preset ? 'Gespeicherte URI vorausgefüllt.' : '';
+    dlg.showModal();
+  });
+}
+
+
+
+// Bunker verbinden (robust, mit Fallback & Alt-Klick zum Ändern)
+// Bunker verbinden – robust ohne prompt()
+els.btnBunker.addEventListener('click', async (ev)=>{
+  const stored = localStorage.getItem('nip46_connect_uri') || '';
+
+  // ALT-Klick erzwingt Eingabedialog; sonst: wenn nichts gespeichert → Dialog, sonst gespeicherte URI
+  let uri = stored;
+  if (!stored || ev.altKey) {
+    uri = await getBunkerURIInteractive({ preset: stored });
+    if (!uri) {
+      if (!stored) alert('Abgebrochen — es ist noch keine Connect-URI gespeichert.');
+      return;
+    }
+    localStorage.setItem('nip46_connect_uri', uri);
+  }
+
+  // UI-Feedback während des Verbindens
+  els.btnBunker.disabled = true;
+  const oldTxt = els.btnBunker.textContent;
+  els.btnBunker.textContent = 'Verbinde…';
+
+  try {
+    const res = await client.connectBunker(uri, { openAuth: true });
     els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
-    els.btnLogin.classList.add('hidden');
-    els.btnLogout.classList.remove('hidden');
-  }catch(err){
-    console.error(err);
-    alert('Bunker-Verbindung fehlgeschlagen. Details in Konsole.');
+  } catch (err) {
+    console.error('[Bunker] connect error:', err);
+    alert('Bunker-Verbindung fehlgeschlagen.');
+  } finally {
+    els.btnBunker.disabled = false;
+    els.btnBunker.textContent = oldTxt;
+    if (typeof updateAuthUI === 'function') updateAuthUI();
   }
 });
+
+
+
+
+
+function isLoggedIn(){ return !!(client && client.signer); }
+
+function updateAuthUI(){
+  els.btnNew.disabled = !isLoggedIn();
+  els.btnNew.title = isLoggedIn() ? 'Neuen Termin anlegen' : 'Bitte zuerst einloggen';
+
+  if (isLoggedIn()) {
+    els.btnBunker.classList.add('hidden');
+    els.btnLogout.classList.remove('hidden');
+    els.btnLogin.classList.add('hidden');
+  } else {
+    els.btnBunker.classList.remove('hidden');
+    els.btnLogout.classList.add('hidden');
+    els.btnLogin.classList.remove('hidden');
+  }
+}
+
+// direkt beim Start einmal setzen
+updateAuthUI();
+
+async function autoReconnectBunker(){
+  const uri = localStorage.getItem('nip46_connect_uri');
+  if(!uri || (client && client.signer)) return;
+  try {
+    const res = await client.connectBunker(uri, { openAuth: false });
+    els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
+  } catch (e) {
+    console.warn('autoReconnectBunker:', e);
+  } finally {
+    updateAuthUI();
+  }
+}
+
+
 
 
 const blossomState = { items: [], page:1, size:25, type:'', sMin:0, sMax:Infinity };
@@ -202,8 +331,23 @@ els.btnLogout.addEventListener('click', async ()=>{
   els.whoami.textContent = '';
   els.btnLogin.classList.remove('hidden');
   els.btnLogout.classList.add('hidden');
+  updateAuthUI();
 });
 
+window.addEventListener('nip46-connected', (e)=>{
+  const pk = e.detail?.pubkey || '';
+  if (pk) els.whoami.textContent = `pubkey: ${pk.slice(0,8)}… (nip46)`;
+  updateAuthUI();
+});
+window.addEventListener('nip46-auth-url', (e)=>{
+  const url = e.detail?.url;
+  if (!url) return;
+  const w = window.open(url, '_blank', 'noopener,noreferrer');
+  if(!w){
+    navigator.clipboard?.writeText(url).catch(()=>{});
+    alert('Bitte Autorisierungs-URL manuell öffnen (Link in Zwischenablage):\n' + url);
+  }
+});
 // FILTERS
 function chip(label){
   const c = document.createElement('span');
@@ -251,7 +395,25 @@ function openModalForEdit(evt){
 
 window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
 
-els.btnNew.addEventListener('click', openModalForNew);
+els.btnNew.addEventListener('click', ()=>{
+  if(!isLoggedIn()){
+    alert('Bitte zuerst einloggen (NIP-07 oder Bunker).');
+    return;
+  }
+  openModalForNew();
+});
+on(els.btnRefresh, 'click', async ()=>{
+  try{
+    els.btnRefresh.disabled = true;
+    els.btnRefresh.textContent = '⟳';
+    els.info.textContent = 'Lade…';
+    await refresh();
+  } finally {
+    els.btnRefresh.disabled = false;
+    els.btnRefresh.textContent = '↻';
+  }
+});
+
 els.btnCloseModal.addEventListener('click', ()=> els.modal.close());
 
 els.btnSave.addEventListener('click', async (e)=>{
@@ -334,11 +496,11 @@ els.btnDelete.addEventListener('click', async ()=>{
 });
 
 // Upload stub (NIP‑96 if configured)
-document.getElementById('btn-upload').addEventListener('click', async ()=>{
+const uploadBtn = document.getElementById('btn-upload');
+if (uploadBtn) uploadBtn.addEventListener('click', async ()=>{
   const fileEl = document.getElementById('f-image-file');
-  const file = fileEl.files?.[0];
+  const file = fileEl?.files?.[0];
   if(!file){ alert('Bitte zuerst eine Bilddatei wählen.'); return; }
-  // Try Blossom first
   try{
     const up = await uploadToBlossom(file);
     document.getElementById('f-image').value = up.url;
@@ -370,6 +532,7 @@ document.getElementById('btn-upload').addEventListener('click', async ()=>{
   }
 });
 
+
 // LIST + FILTER
 function applyFilters(){
   let out = [...state.events];
@@ -398,12 +561,37 @@ function applyFilters(){
 
   state.filtered = out;
   els.info.textContent = `${out.length} Treffer`;
-  renderGrid(els.grid, out);
+  renderCurrentView();
+}
+
+function renderCurrentView(){
+  // Wähle die Datenquelle: gefiltert, sonst alle
+  const data = state.filtered.length ? state.filtered : state.events;
+
+  if(currentView === 'month'){
+    // Monatsansicht: Grid verstecken, Month zeigen
+    els.grid.classList.add('hidden');
+    els.monthGrid.classList.remove('hidden');
+    // (Toolbar/Filter in der Monatsansicht ausblenden)
+    els.toolbar?.classList.add('hidden');
+    // Falls ein spezieller Monat gewählt wurde, anwenden
+    if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
+    monthView.render(data);
+  } else {
+    // Kartenansicht: Month verstecken, Grid zeigen
+    els.monthGrid.classList.add('hidden');
+    els.grid.classList.remove('hidden');
+    // Filter in Kartenansicht sichtbar
+    els.toolbar?.classList.remove('hidden');
+    renderGrid(els.grid, data);
+  }
 }
 
 async function refresh(){
   els.info.textContent = 'Lade…';
-  const events = await client.fetchEvents({ sinceDays: 540 });
+  console.log('[DEBUG] Loading events...');
+  const events = await client.fetchEvents({ sinceDays: 1000 });
+  console.log(`[DEBUG] Loaded ${events.length} events`);
   state.events = events;
   buildMonthOptions(els.monthSelect, events);
   applyFilters();
@@ -412,22 +600,15 @@ async function refresh(){
 setupMdToolbar();
 const monthView = new MonthView(els.monthGrid);
 function setView(name){
-  if(name==='month'){
-    els.grid.classList.add('hidden');
-    els.monthGrid.classList.remove('hidden');
-    // set month from filter if chosen
-    if(state.month) monthView.setMonth(state.month);
-    monthView.render(state.filtered.length? state.filtered : state.events);
-    localStorage.setItem('view','month');
-  } else {
-    els.monthGrid.classList.add('hidden');
-    els.grid.classList.remove('hidden');
-    localStorage.setItem('view','cards');
-  }
+  currentView = (name === 'month') ? 'month' : 'cards';
+  localStorage.setItem('view', currentView);
+  renderCurrentView();
 }
 els.btnViewCards.addEventListener('click', ()=> setView('cards'));
 els.btnViewMonth.addEventListener('click', ()=> setView('month'));
 setView(localStorage.getItem('view') || 'cards');
+autoReconnectBunker();   // <— NEU
 
-setupTagInput();
-refresh();
+// setupTagInput();
+refresh().catch(console.error);
+

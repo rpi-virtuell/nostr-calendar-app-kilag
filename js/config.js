@@ -1,11 +1,10 @@
 export const Config = {
   relays: [
     'wss://relilab.nostr1.com',
-    'wss://relay.tchncs.de',
-    'wss://relay.damus.io'
+    'wss://relay-rpi.edufeed.org'
   ],
   // Optional: auf bestimmte Autoren einschränken (npub, hex oder leer lassen)
-  allowedAuthors: [],
+  allowedAuthors: ["54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913"],
   defaultTheme: 'light',
   // Optionaler NIP-96 Upload-Endpunkt (z. B. https://media.server/api/upload )
   mediaUploadEndpoint: '',
