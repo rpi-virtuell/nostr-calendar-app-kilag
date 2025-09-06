@@ -24,42 +24,6 @@ function __b32Decode(bech) { try { const lower = bech.toLowerCase(); const pos =
 function __fromWords(words) { let acc = 0, bits = 0; const out = []; for (let i = 0; i < words.length; ++i) { acc = (acc << 5) | words[i]; bits += 5; while (bits >= 8) { bits -= 8; out.push((acc >> bits) & 0xff); } } return out; }
 function npubToHex(npub) { if (!npub || typeof npub !== 'string') return null; if (/^[0-9a-f]{64}$/i.test(npub)) return npub.toLowerCase(); const dec = __b32Decode(npub); if (!dec || (dec.hrp !== 'npub' && dec.hrp !== 'nprofile')) return null; const bytes = __fromWords(dec.data); if (!bytes || !bytes.length) return null; return bytes.map(b => ('0' + b.toString(16)).slice(-2)).join(''); }
 
-// --- Hilfen oben im File oder direkt vor der Klasse platzieren (nur einmal nötig) ---
-function normalizeConnectURI(uri = '') {
-  // Bunker nutzt oft bunker:// — viele libs erwarten nostrconnect://
-  if (typeof uri !== 'string') return '';
-  return uri.startsWith('bunker://') ? uri.replace(/^bunker:\/\//, 'nostrconnect://') : uri;
-}
-function pickRelayFromURI(uri, fallbackRelay) {
-  try {
-    const u = new URL(uri);
-    // übliche Param-Namen: relay oder relays (erstes nehmen)
-    const qRelay = u.searchParams.get('relay')
-      || (u.searchParams.get('relays') || '').split(',').filter(Boolean)[0];
-    return qRelay || fallbackRelay;
-  } catch {
-    return fallbackRelay;
-  }
-}
-function wrapNip46Signer(raw) {
-  // Vereinheitlicht unterschiedliche Methodennamen/Objekte
-  return {
-    type: 'nip46',
-    getPublicKey: async () => {
-      if (typeof raw.getPublicKey === 'function') return await raw.getPublicKey();
-      if (raw.pubkey) return raw.pubkey;
-      if (typeof raw.publicKey === 'function') return await raw.publicKey();
-      throw new Error('NIP-46 signer: no getPublicKey available');
-    },
-    signEvent: async (evt) => {
-      if (typeof raw.signEvent === 'function') return await raw.signEvent(evt);
-      if (typeof raw.sign === 'function') return await raw.sign(evt);
-      throw new Error('NIP-46 signer: no signEvent/sign available');
-    },
-    __raw: raw
-  };
-}
-
 
 
 // ---- dyn. load

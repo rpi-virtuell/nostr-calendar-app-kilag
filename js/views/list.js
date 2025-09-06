@@ -37,7 +37,7 @@ export function renderGrid(container, events){
     const dtag = e.tags.find(t=>t[0]==='d')?.[1];
 
     if(image){ cover.style.backgroundImage = `url(${image})`; }
-    badge.textContent = new Date(startS*1000).toLocaleDateString(undefined,{day:'2-digit',month:'short'}).toUpperCase();
+    badge.textContent = new Date(startS*1000).toLocaleDateString(undefined,{day:'2-digit',month:'short', year:'numeric'}).toUpperCase();
     title.textContent = titleTag;
     metaWhen.textContent = formatDateRange(startS, endS);
     metaWhere.textContent = where;
