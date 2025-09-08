@@ -75,7 +75,7 @@ export async function getAuthorMeta(npub) {
 
     await client.initPool();
 
-    // Verwende breitere Relays wie im User-Skript
+    // Verwende breitere Relays 
     const relays = [
       'wss://relay.damus.io',
       'wss://relay.snort.social',
