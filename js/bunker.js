@@ -1,4 +1,5 @@
 import { client } from './nostr.js';
+import { getAuthorMeta } from './author.js';
 
 function ensureBunkerModal() {
   if (document.getElementById('bunker-modal')) return;
@@ -160,6 +161,10 @@ export async function autoReconnectBunker(whoami, onUpdate) {
   }
   try {
     const res = await client.connectBunker(uri, { openAuth: true });
+    const meta= await getAuthorMeta(res.pubkey);
+    if (meta && meta.name && whoami) {
+      whoami.innerHTML = `<span title="pubkey: ${res.pubkey.slice(0,8)}…(nip46)">${meta.name}</span>`;
+    } else
     if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
   } catch (e) {
     console.warn('autoReconnectBunker:', e);
@@ -169,12 +174,26 @@ export async function autoReconnectBunker(whoami, onUpdate) {
 }
 
 // Global Event-Listener für NIP-46-Events
-export function setupBunkerEvents(whoami, onUpdate) {
+export async function setupBunkerEvents(whoami, onUpdate) {
   window.addEventListener('nip46-connected', (e) => {
     const pk = e.detail?.pubkey || '';
-    if (pk && whoami) whoami.textContent = `pubkey: ${pk.slice(0,8)}… (nip46)`;
-    if (onUpdate) onUpdate();
+    //korrigiere await geht nicht in event listener
+    (async () => {
+      if (!pk) return;
+      const res = { pubkey: pk }; 
+      const meta = await getAuthorMeta(res.pubkey);
+      if (meta && meta.name && whoami) {
+        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">${meta.name}</span>`;
+      } else if (meta && whoami) {
+        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">@${meta.name}</span>`;
+      } else if (pk && whoami) {
+        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">pubkey: ${pk.slice(0,8)}…</span>  (nip46)`;
+      }
+      if (onUpdate) onUpdate();
+    })();
   });
+
+  
 
   window.addEventListener('nip46-auth-url', (e) => {
     const url = e.detail?.url;
