@@ -56,3 +56,30 @@ export function mdToHtml(md){
 
   return sanitizeHTML(h);
 }
+
+// Neue DOM-Helpers aus app.js ausgelagert
+export function on(el, evt, fn){ 
+  if(el && el.addEventListener) el.addEventListener(evt, fn); 
+}
+
+export function chip(label, onRemove) {
+  const c = document.createElement('span');
+  c.className='chip';
+  c.innerHTML = `<span>${label}</span>`;
+  const x = document.createElement('button'); 
+  x.textContent='✕';
+  x.addEventListener('click', ()=>{
+    onRemove(label);
+    c.remove();
+  });
+  c.appendChild(x);
+  return c;
+}
+
+export function setupModal(dlg, onClose) {
+  // Basis-Setup für Modals (erweiterbar)
+  if (onClose) {
+    dlg.addEventListener('close', onClose);
+  }
+  return dlg;
+}
