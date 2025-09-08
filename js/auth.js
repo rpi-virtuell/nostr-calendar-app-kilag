@@ -18,10 +18,14 @@ export function updateAuthUI(els) {
     if (els.btnBunker) els.btnBunker.classList.add('hidden');
     if (els.btnLogout) els.btnLogout.classList.remove('hidden');
     if (els.btnLogin) els.btnLogin.classList.add('hidden');
+    if (els.btnManual) els.btnManual.classList.add('hidden');
+    if (els.btnNip07) els.btnNip07.classList.add('hidden');
   } else {
     if (els.btnBunker) els.btnBunker.classList.remove('hidden');
     if (els.btnLogout) els.btnLogout.classList.add('hidden');
     if (els.btnLogin) els.btnLogin.classList.remove('hidden');
+    if (els.btnManual) els.btnManual.classList.remove('hidden');
+    if (els.btnNip07) els.btnNip07.classList.remove('hidden');
   }
 }
 
@@ -36,7 +40,7 @@ export async function logout(els, whoami) {
   updateAuthUI(els);
 }
 
-export function setupAuthUI(btnLogin, btnLogout, btnBunker, whoami, btnNew, onUpdate) {
+export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, whoami, btnNew, onUpdate) {
   on(btnLogin, 'click', async () => {
     try {
       const res = await login();
@@ -48,10 +52,42 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, whoami, btnNew, onUp
     }
   });
 
+  on(btnManual, 'click', async () => {
+    if (isLoggedIn()) return; // Bereits eingeloggt
+    const nsec = prompt('Geben Sie Ihren nsec-Key ein (nsec1... oder Hex):');
+    if (!nsec) return;
+    try {
+      const res = await client.loginWithNsec(nsec);
+      if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (manual)`;
+      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error('Manueller Login fehlgeschlagen:', err);
+      alert('Fehler beim Login: ' + err.message);
+    }
+  });
+
+  on(btnNip07, 'click', async () => {
+    if (isLoggedIn()) return;
+    try {
+      const res = await login(); // Ruft NIP-07 auf, falls verfügbar
+      if (res.method !== 'nip07') {
+        alert('NIP-07 Extension (z.B. nos2x-fox) nicht erkannt. Bitte installieren und Seite neu laden.');
+        return;
+      }
+      if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (${res.method})`;
+      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error('NIP-07 Login fehlgeschlagen:', err);
+      alert('Fehler beim NIP-07 Login: ' + err.message);
+    }
+  });
+
   on(btnLogout, 'click', async () => {
     logout({ btnNew, btnLogin, btnLogout, btnBunker }, whoami);
   });
 
   // Initial UI-Update
-  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnManual, btnNip07 });
 }

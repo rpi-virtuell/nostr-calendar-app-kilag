@@ -41,6 +41,8 @@ function initEls() {
     btnDelete: document.getElementById('btn-delete'),
     whoami: document.getElementById('whoami'),
     btnLogin: document.getElementById('btn-login'),
+    btnManual: document.getElementById('btn-manual'),
+    btnNip07: document.getElementById('btn-nip07'),
     btnLogout: document.getElementById('btn-logout'),
     themeSelect: document.getElementById('theme-select'),
     btnICSImport: document.getElementById('btn-ics-import'),
@@ -229,12 +231,12 @@ document.addEventListener('DOMContentLoaded', () => {
   on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
   
   // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker }));
+  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
   setupBunkerUI(els.btnBunker, (res) => {
     els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
-    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker });
+    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 });
   });
-  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker }));
+  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,
@@ -332,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setView(localStorage.getItem('view') || 'cards');
 
   // Auto-Reconnect
-  autoReconnectBunker(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker }));
+  autoReconnectBunker(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
 
   // Initial Setup
   setupMdToolbar();

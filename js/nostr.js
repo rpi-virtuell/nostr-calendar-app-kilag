@@ -26,6 +26,16 @@ function __b32Decode(bech) { try { const lower = bech.toLowerCase(); const pos =
 function __fromWords(words) { let acc = 0, bits = 0; const out = []; for (let i = 0; i < words.length; ++i) { acc = (acc << 5) | words[i]; bits += 5; while (bits >= 8) { bits -= 8; out.push((acc >> bits) & 0xff); } } return out; }
 function npubToHex(npub) { if (!npub || typeof npub !== 'string') return null; if (/^[0-9a-f]{64}$/i.test(npub)) return npub.toLowerCase(); const dec = __b32Decode(npub); if (!dec || (dec.hrp !== 'npub' && dec.hrp !== 'nprofile')) return null; const bytes = __fromWords(dec.data); if (!bytes || !bytes.length) return null; return bytes.map(b => ('0' + b.toString(16)).slice(-2)).join(''); }
 
+function nsecToHex(nsec) {
+  if (!nsec || typeof nsec !== 'string') return null;
+  if (/^[0-9a-f]{64}$/i.test(nsec)) return nsec.toLowerCase(); // fallback für hex
+  const dec = __b32Decode(nsec);
+  if (!dec || dec.hrp !== 'nsec') return null;
+  const bytes = __fromWords(dec.data);
+  if (!bytes || bytes.length !== 32) return null; // Secret Key muss 32 Bytes sein
+  return bytesToHex(bytes);
+}
+
 
 
 // ---- dyn. load
@@ -184,38 +194,62 @@ export class NostrClient {
 
   // ---- Auth: NIP-07/NOS2X, sonst Local Key (Demo)
   async login() {
-    await this.initPool();
-    if (window.nostr && window.nostr.getPublicKey) {
-      this.pubkey = await window.nostr.getPublicKey();
+      await this.initPool();
+      if (window.nostr && window.nostr.getPublicKey) {
+        this.pubkey = await window.nostr.getPublicKey();
+        this.signer = {
+          type: 'nip07',
+          getPublicKey: async () => this.pubkey,
+          signEvent: async (evt) => window.nostr.signEvent(evt)
+        };
+        return { method: 'nip07', pubkey: this.pubkey };
+      }
+      await loadTools();
+      let sk = localStorage.getItem('nostr_sk_hex');
+      if (!sk) {
+        const s = tools.generateSecretKey();
+        sk = bytesToHex(s);
+        localStorage.setItem('nostr_sk_hex', sk);
+      }
+      const skBytes = hexToBytes(sk);
+      this.pubkey = tools.getPublicKey(skBytes);
       this.signer = {
-        type: 'nip07',
+        type: 'local',
         getPublicKey: async () => this.pubkey,
-        signEvent: async (evt) => window.nostr.signEvent(evt)
+        signEvent: async (evt) => tools.finalizeEvent(evt, skBytes)
       };
-      return { method: 'nip07', pubkey: this.pubkey };
+      return { method: 'local', pubkey: this.pubkey };
     }
-    await loadTools();
-    let sk = localStorage.getItem('nostr_sk_hex');
-    if (!sk) {
-      const s = tools.generateSecretKey();
-      sk = bytesToHex(s);
-      localStorage.setItem('nostr_sk_hex', sk);
+  
+    async loginWithNsec(nsec) {
+      await this.initPool();
+      await loadTools();
+      const skHex = nsecToHex(nsec);
+      if (!skHex) {
+        throw new Error('Ungültiger nsec-Key: Muss gültiges Bech32-Format (nsec1...) oder 64-stelliger Hex sein.');
+      }
+      const skBytes = hexToBytes(skHex);
+      if (skBytes.length !== 32) {
+        throw new Error('Ungültiger Secret Key: Muss genau 32 Bytes lang sein.');
+      }
+      this.pubkey = tools.getPublicKey(skBytes);
+      this.signer = {
+        type: 'manual',
+        getPublicKey: async () => this.pubkey,
+        signEvent: async (evt) => tools.finalizeEvent(evt, skBytes)
+      };
+      this.manualSkBytes = skBytes; // Im Speicher halten für Logout
+      return { method: 'manual', pubkey: this.pubkey };
     }
-    const skBytes = hexToBytes(sk);
-    this.pubkey = tools.getPublicKey(skBytes);
-    this.signer = {
-      type: 'local',
-      getPublicKey: async () => this.pubkey,
-      signEvent: async (evt) => tools.finalizeEvent(evt, skBytes)
-    };
-    return { method: 'local', pubkey: this.pubkey };
-  }
 
   async logout() {
-    this.signer = null;
-    this.pubkey = null;
-    try { window.dispatchEvent(new CustomEvent('nip46-disconnected')); } catch { }
-  }
+      this.signer = null;
+      this.pubkey = null;
+      if (this.manualSkBytes) {
+        this.manualSkBytes = null; // Manuellen Key aus Speicher löschen
+      }
+      try { window.dispatchEvent(new CustomEvent('nip46-disconnected')); } catch { }
+    }
 
 
   // ---- NIP-46 (Bunker) – mit onauth-Callback und optional silent-Mode
