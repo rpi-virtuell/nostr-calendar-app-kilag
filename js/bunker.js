@@ -76,27 +76,68 @@ export async function connectBunker(uri, ev) {
 
   // UI-Feedback während des Verbindens
   const btnBunker = ev.target;
+  // Verhindere parallele Verbindungsversuche (Button + Auto-Reconnect)
+  if (client && client._nip46Connecting) {
+    console.warn('[Bunker] connect skipped — another connect is in progress');
+    return;
+  }
   btnBunker.disabled = true;
   const oldTxt = btnBunker.textContent;
   btnBunker.textContent = 'Verbinde…';
 
-  // Safety-Recover nach 13s
+  // Safety-Recover nach 50s
   let safety = setTimeout(() => {
     btnBunker.disabled = false;
     btnBunker.textContent = oldTxt;
-  }, 13000);
+  }, 50000);
+
+  // Additional debug: mark start
+  console.debug('[Bunker] connectBunker start - uriToUse=', uriToUse);
+
+  // Extra diagnostics: listen for lifecycle events from nostr client and
+  // surface them to the console so we can see if connect() started but
+  // never resolved/triggered getPublicKey.
+  try {
+    const onStarted = (e) => {
+      console.debug('[Bunker] event nip46-connect-started received:', e?.detail || {});
+    };
+    const onConnected = (e) => {
+      console.debug('[Bunker] event nip46-connected received:', e?.detail || {});
+    };
+    const onError = (e) => {
+      console.error('[Bunker] event nip46-connect-error received:', e?.detail || {});
+    };
+    window.addEventListener('nip46-connect-started', onStarted);
+    window.addEventListener('nip46-connected', onConnected);
+    window.addEventListener('nip46-connect-error', onError);
+
+    // Remove listeners once connectBunker finishes (cleanup in finally block also exists)
+    // We'll store them on the button element so finally can remove if needed.
+    try { btnBunker._bunkerDiagListeners = { onStarted, onConnected, onError }; } catch(e){}
+  } catch(e) {}
 
   try {
-    const res = await client.connectBunker(uriToUse, { openAuth: false });
+    const res = await client.connectBunker(uriToUse, { openAuth: true });
+    console.debug('[Bunker] connectBunker success - res=', res);
     return res;
   } catch (err) {
-    console.error('[Bunker] connect error:', err);
-    alert('Bunker-Verbindung fehlgeschlagen.');
+    // Detailed error logging for debugging
+    try { console.error('[Bunker] connect error:', err && (err.stack || err)); } catch(e) {}
+    // Dispatch a global event so UI or tests can react
+    try { window.dispatchEvent(new CustomEvent('nip46-connect-error', { detail: { error: String(err) } })); } catch(e){}
+    // Visible UI feedback: temporary error state
+    try {
+      btnBunker.textContent = 'Fehler';
+      setTimeout(() => { if (btnBunker) btnBunker.textContent = oldTxt; }, 3500);
+    } catch (e) {}
+    alert('Bunker-Verbindung fehlgeschlagen. Details siehe Konsole.');
     return null;
   } finally {
     clearTimeout(safety);
     btnBunker.disabled = false;
-    btnBunker.textContent = oldTxt;
+    // Ensure button text is restored if not already
+    try { if (btnBunker.textContent !== oldTxt) btnBunker.textContent = oldTxt; } catch(e){}
+    console.debug('[Bunker] connectBunker end');
   }
 }
 
@@ -112,7 +153,8 @@ export function setupBunkerUI(btnBunker, onConnected) {
 
 export async function autoReconnectBunker(whoami, onUpdate) {
   const uri = localStorage.getItem('nip46_connect_uri');
-  if (!uri || (client && client.signer)) {
+  // Skip, wenn kein URI, bereits ein Signer aktiv ist, oder ein Connect läuft
+  if (!uri || (client && client.signer) || (client && client._nip46Connecting)) {
     if (onUpdate) onUpdate();
     return;
   }
@@ -139,8 +181,9 @@ export function setupBunkerEvents(whoami, onUpdate) {
     if (!url) return;
     const w = window.open(url, '_blank', 'noopener,noreferrer');
     if (!w) {
+      // Popup blocked — copy the URL to clipboard and warn in console (non-blocking).
       navigator.clipboard?.writeText(url).catch(() => {});
-      alert('Bitte Autorisierungs-URL manuell öffnen (Link in Zwischenablage):\n' + url);
+      console.warn('Popup blocked; authorization URL copied to clipboard:', url);
     }
   });
 }

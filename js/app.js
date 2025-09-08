@@ -268,11 +268,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // CRUD Events
   window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
-  on(els.btnNew, 'click', ()=>{
+  on(els.btnNew, 'click', async ()=>{
     if(!isLoggedIn()){
       alert('Bitte zuerst einloggen (NIP-07 oder Bunker).');
       return;
     }
+    // isLoggedIn() ist true, signer existiert
+    const userPubKey = await client.signer.getPublicKey();
     openModalForNew();
   });
   on(els.btnRefresh, 'click', async ()=>{

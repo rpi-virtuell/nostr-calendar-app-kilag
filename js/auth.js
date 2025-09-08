@@ -27,6 +27,9 @@ export function updateAuthUI(els) {
 
 export async function logout(els, whoami) {
   await client.logout();
+  localStorage.removeItem('nostr_sk_hex');
+  localStorage.removeItem('nip46_connect_uri');
+  localStorage.removeItem('nip46_client_sk_hex');
   if (whoami) whoami.textContent = '';
   if (els.btnLogin) els.btnLogin.classList.remove('hidden');
   if (els.btnLogout) els.btnLogout.classList.add('hidden');
