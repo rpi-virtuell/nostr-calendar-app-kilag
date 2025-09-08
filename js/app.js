@@ -22,6 +22,8 @@ const state = {
 };
 
 let els = {};
+// Helper: element used to trigger Bunker connect (may be legacy btn or dropdown menu entry)
+let bunkerTrigger = null;
 let currentView = localStorage.getItem('view') || 'cards';
 let monthView;
 
@@ -44,6 +46,12 @@ function initEls() {
     btnManual: document.getElementById('btn-manual'),
     btnNip07: document.getElementById('btn-nip07'),
     btnLogout: document.getElementById('btn-logout'),
+    // new dropdown/menu elements
+    btnLoginMenu: document.getElementById('btn-login-menu'),
+    loginMenu: document.getElementById('login-menu'),
+    loginMenuNostr: document.getElementById('login-menu-nostr'),
+    loginMenuExtension: document.getElementById('login-menu-extension'),
+    loginMenuBunker: document.getElementById('login-menu-bunker'),
     themeSelect: document.getElementById('theme-select'),
     btnICSImport: document.getElementById('btn-ics-import'),
     btnICSExport: document.getElementById('btn-ics-export'),
@@ -74,6 +82,38 @@ function initEls() {
     toolbar: document.getElementById('toolbar'),
     filterRow: document.getElementById('filter-row'),
   };
+
+  // Kompatibilitäts-Glue: Falls die alten "legacy" Buttons (auf die bestehende
+  // Event-Handler in js/auth.js hören) nicht im DOM vorhanden sind, erzeugen
+  // wir sie versteckt zur Laufzeit und hängen sie in die auth-Box.
+  // So funktionieren sowohl die Dropdown-Menüs (die .click() auf diese IDs
+  // weiterleiten) als auch bestehende Tests ohne weitere Code-Anpassungen.
+  try {
+    const authBox = document.getElementById('auth-box') || document.body;
+    // Helper: create button only if missing
+    const ensureBtn = (id, text, hidden = true) => {
+      let el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement('button');
+        el.id = id;
+        el.className = 'btn btn-ghost';
+        el.type = 'button';
+        el.style.display = hidden ? 'none' : '';
+        el.textContent = text;
+        authBox.appendChild(el);
+      }
+      return el;
+    };
+
+    // Legacy IDs expected by auth.js
+    els.btnLogin = els.btnLogin || ensureBtn('btn-login', 'Login (legacy)');
+    els.btnManual = els.btnManual || ensureBtn('btn-manual', 'Manual Login (legacy)');
+    els.btnNip07 = els.btnNip07 || ensureBtn('btn-nip07', 'NIP-07 Login (legacy)');
+    // Erzeuge den legacy Bunker-Button ebenfalls versteckt, damit er die UI nicht stört.
+    els.btnBunker = els.btnBunker || ensureBtn('btn-bunker', 'Bunker (legacy)', true);
+  } catch (e) {
+    console.warn('[initEls] could not create legacy buttons:', e);
+  }
 }
 
 // THEME
@@ -231,12 +271,25 @@ document.addEventListener('DOMContentLoaded', () => {
   on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
   
   // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
-  setupBunkerUI(els.btnBunker, (res) => {
-    els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
-    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 });
-  });
-  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
+  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+
+  // Determine the element that should trigger Bunker connection.
+  // The legacy #btn-bunker may be removed from the DOM; prefer it if present,
+  // otherwise use the dropdown menu item (#login-menu-bunker) as the trigger.
+  bunkerTrigger = els.btnBunker || els.loginMenuBunker || null;
+
+  if (bunkerTrigger) {
+    setupBunkerUI(bunkerTrigger, (res) => {
+      if (res && res.pubkey && els.whoami) {
+        els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
+      }
+      updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
+    });
+  } else {
+    console.debug('[App] kein Bunker-Trigger im DOM gefunden; Bunker-Connect disabled');
+  }
+
+  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,
@@ -334,7 +387,73 @@ document.addEventListener('DOMContentLoaded', () => {
   setView(localStorage.getItem('view') || 'cards');
 
   // Auto-Reconnect
-  autoReconnectBunker(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07 }));
+  autoReconnectBunker(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+
+  // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
+  if (els.btnLoginMenu && els.loginMenu) {
+    on(els.btnLoginMenu, 'click', () => {
+      // Wenn bereits eingeloggt: Dropdown verbergen (soll nicht sichtbar sein)
+      if (typeof isLoggedIn === 'function' && isLoggedIn()) {
+        els.loginMenu.classList.add('hidden');
+        return;
+      }
+      // Toggle visibility
+      els.loginMenu.classList.toggle('hidden');
+
+      // Position correction: stelle sicher, dass das Menü nicht aus dem Viewport rechts herausragt.
+      try {
+        els.loginMenu.style.left = ''; // reset
+        els.loginMenu.style.right = '';
+        const btnRect = els.btnLoginMenu.getBoundingClientRect();
+        const menuRect = els.loginMenu.getBoundingClientRect();
+        const viewportW = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        // Default menu left is btn.left; wenn menu über den Rand hinausgeht, setze right:0 und linksunset.
+        if (btnRect.left + menuRect.width > viewportW - 8) { // 8px margin
+          els.loginMenu.style.left = 'auto';
+          // positioniere so, dass das Menü am rechten Rand des Viewports anliegt
+          els.loginMenu.style.right = '8px';
+        } else {
+          // sichere Positionierung nahe am Button (falls CSS verändert wurde)
+          els.loginMenu.style.left = `${btnRect.left}px`;
+          els.loginMenu.style.right = 'auto';
+        }
+      } catch (e) {
+        // ignore positioning errors
+      }
+    });
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!els.btnLoginMenu.contains(e.target) && !els.loginMenu.contains(e.target)) {
+        els.loginMenu.classList.add('hidden');
+      }
+    });
+    // Menu item handlers: trigger the (hidden) legacy buttons to preserve logic
+    // Use a dispatched MouseEvent first (better with hidden elements / frameworks)
+    const triggerClick = (btn) => {
+      try {
+        if (!btn) return;
+        const ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+        btn.dispatchEvent(ev);
+      } catch (e) {
+        try { btn?.click?.(); } catch {}
+      }
+    };
+
+    if (els.loginMenuNostr) on(els.loginMenuNostr, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnManual); });
+    if (els.loginMenuExtension) on(els.loginMenuExtension, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnNip07); });
+    if (els.loginMenuBunker) on(els.loginMenuBunker, 'click', () => {
+      els.loginMenu.classList.add('hidden');
+      // Avoid recursive clicks: only forward to a different trigger element.
+      if (bunkerTrigger && bunkerTrigger !== els.loginMenuBunker) {
+        try { triggerClick(bunkerTrigger); } catch(e){ console.warn('bunkerTrigger click failed', e); }
+      } else if (els.btnBunker) {
+        // Fallback to legacy button if present
+        try { triggerClick(els.btnBunker); } catch(e){ console.warn('btnBunker click failed', e); }
+      } else {
+        console.debug('[App] Kein separater Bunker-Trigger gefunden; Bunker connect nicht ausgeführt.');
+      }
+    });
+  }
 
   // Initial Setup
   setupMdToolbar();

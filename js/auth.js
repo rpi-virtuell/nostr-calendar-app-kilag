@@ -14,18 +14,21 @@ export function updateAuthUI(els) {
   els.btnNew.disabled = !isLoggedIn();
   els.btnNew.title = isLoggedIn() ? 'Neuen Termin anlegen' : 'Bitte zuerst einloggen';
 
+  // Falls ein Dropdown-Trigger übergeben wurde, steuere dessen Sichtbarkeit ebenfalls
   if (isLoggedIn()) {
     if (els.btnBunker) els.btnBunker.classList.add('hidden');
     if (els.btnLogout) els.btnLogout.classList.remove('hidden');
     if (els.btnLogin) els.btnLogin.classList.add('hidden');
     if (els.btnManual) els.btnManual.classList.add('hidden');
     if (els.btnNip07) els.btnNip07.classList.add('hidden');
+    if (els.btnLoginMenu) els.btnLoginMenu.classList.add('hidden'); // Dropdown ausblenden wenn eingeloggt
   } else {
     if (els.btnBunker) els.btnBunker.classList.remove('hidden');
     if (els.btnLogout) els.btnLogout.classList.add('hidden');
     if (els.btnLogin) els.btnLogin.classList.remove('hidden');
     if (els.btnManual) els.btnManual.classList.remove('hidden');
     if (els.btnNip07) els.btnNip07.classList.remove('hidden');
+    if (els.btnLoginMenu) els.btnLoginMenu.classList.remove('hidden'); // Dropdown sichtbar wenn nicht eingeloggt
   }
 }
 
@@ -35,9 +38,18 @@ export async function logout(els, whoami) {
   localStorage.removeItem('nip46_connect_uri');
   localStorage.removeItem('nip46_client_sk_hex');
   if (whoami) whoami.textContent = '';
-  if (els.btnLogin) els.btnLogin.classList.remove('hidden');
-  if (els.btnLogout) els.btnLogout.classList.add('hidden');
-  updateAuthUI(els);
+  if (els && els.btnLogin) els.btnLogin.classList.remove('hidden');
+  if (els && els.btnLogout) els.btnLogout.classList.add('hidden');
+  updateAuthUI(els || {});
+
+  // Robust: falls Aufrufer nicht alle Buttons übergeben, entferne hidden direkt an den DOM-Elementen
+  try {
+    const ensureVisible = (id) => { try { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); } catch(e){} };
+    ensureVisible('btn-login');
+    ensureVisible('btn-manual');
+    ensureVisible('btn-nip07');
+    ensureVisible('btn-login-menu');
+  } catch (e) { /* ignore */ }
 }
 
 export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, whoami, btnNew, onUpdate) {
