@@ -114,9 +114,10 @@ MIT
 
 ## ToDo-Liste
 
-- [ ] RRule-UI erweitern: Form-Felder für FREQ/BYDAY/INTERVAL, Vorschau von Instanzen.
-- [ ] Unit-Tests hinzufügen: Für Event-Parsing, ICS-Conversion, Upload-Fallbacks.
-- [ ] Mehr Relays vordefinieren: Globale Liste mit Read/Write-Separation.
+- [ ] WySiWyG Editor
+- [ ] Edit Tests
+- [ ] UI Verbesserungen
+- [ ] Kachelansicht verbessern
 - [ ] Mobile-Optimierungen: Touch-Handling für Calendar, responsive Modals.
 - [ ] NIP-89 Support: Event-Attachments/Files integrieren.
 - [ ] Error-Handling verbessern: Netzwerk-Fehler mit Retry-Button, Offline-Modus (IndexedDB).
