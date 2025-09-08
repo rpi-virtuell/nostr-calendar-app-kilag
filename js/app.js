@@ -8,7 +8,7 @@ import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
-import { setupAuthUI, updateAuthUI, logout, isLoggedIn } from './auth.js';
+import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami } from './auth.js';
 import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
@@ -279,9 +279,9 @@ document.addEventListener('DOMContentLoaded', () => {
   bunkerTrigger = els.btnBunker || els.loginMenuBunker || null;
 
   if (bunkerTrigger) {
-    setupBunkerUI(bunkerTrigger, (res) => {
+    setupBunkerUI(bunkerTrigger, async (res) => {
       if (res && res.pubkey && els.whoami) {
-        els.whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (nip46)`;
+        await updateWhoami(els.whoami, res.method || 'nip46', res.pubkey);
       }
       updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
     });

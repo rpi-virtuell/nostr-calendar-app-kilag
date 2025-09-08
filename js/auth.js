@@ -1,5 +1,6 @@
 import { client } from './nostr.js';
 import { on } from './utils.js';
+import { getAuthorMeta } from './author.js';
 
 /*
   Secure storage helpers (WebCrypto):
@@ -153,11 +154,26 @@ export async function logout(els, whoami) {
   } catch (e) { /* ignore */ }
 }
 
+/**
+ * Zentrale Funktion zum Aktualisieren des whoami-Elements mit Author-Namen.
+ * @param {HTMLElement} whoami - Das whoami-Element.
+ * @param {string} method - Die Login-Methode (z.B. 'nip07', 'manual', 'nip46').
+ * @param {string} pubkey - Die Pubkey (hex).
+ */
+export async function updateWhoami(whoami, method, pubkey) {
+  if (whoami && pubkey) {
+    const meta = await getAuthorMeta(pubkey);
+    console.debug('[Auth] Updating whoami for', pubkey, 'meta=', meta);
+    const displayName = meta?.name || 'Unbekannter User';
+    whoami.innerHTML = `<span title="pubkey: ${pubkey.slice(0,8)}… (${method})">${displayName}</span>`;
+  }
+}
+
 export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, whoami, btnNew, onUpdate) {
   on(btnLogin, 'click', async () => {
     try {
       const res = await login();
-      if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (${res.method})`;
+      await updateWhoami(whoami, res.method, res.pubkey);
       updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
@@ -171,7 +187,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
     if (!nsec) return;
     try {
       const res = await client.loginWithNsec(nsec);
-      if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (manual)`;
+      await updateWhoami(whoami, 'manual', res.pubkey);
 
       // Komfort: immer den entschlüsselten Key in sessionStorage ablegen (nur aktuelle Tab‑Session)
       try { sessionStorage.setItem('nostr_manual_nsec_plain', nsec); } catch (e) { /* ignore */ }
@@ -198,10 +214,6 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         }
       } catch (e) { /* ignore */ }
 
-      // Komfort: nach erfolgreichem manuellen Login speichern wir den entschlüsselten Key
-      // für die aktuelle Tab‑Session, damit bei Reload kein Prompt nötig ist.
-      try { sessionStorage.setItem('nostr_manual_nsec_plain', nsec); } catch (e) { /* ignore */ }
-
       updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
@@ -218,7 +230,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         alert('NIP-07 Extension (z.B. nos2x-fox) nicht erkannt. Bitte installieren und Seite neu laden.');
         return;
       }
-      if (whoami) whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (${res.method})`;
+      await updateWhoami(whoami, res.method, res.pubkey);
       updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
@@ -238,26 +250,27 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
   // versuchen wir den Login erst nach einer User-Geste (z.B. Klick).
   // Viele Browser blockieren prompt/alert bei automatischem Aufruf beim Laden.
   (function setupAutoManualLoginOnGesture() {
-  // Prüfe zuerst, ob in dieser Tab-Session bereits der entschlüsselte Key vorliegt
-  try {
-    const sess = sessionStorage.getItem('nostr_manual_nsec_plain');
-    if (sess) {
-      console.debug('[auth] sessionStorage plain key found — attempting session auto-login');
-      // Versuche direktes Login mit dem Session-Key (kein Prompt nötig)
-      client.loginWithNsec(sess).then(res => {
-        if (res && whoami) {
-          whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (manual-session)`;
-          updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
-          if (onUpdate) onUpdate();
-        }
-      }).catch(e => { console.debug('[auth] session auto-login failed:', e && e.message); });
-      return;
-    }
-  } catch (e) { /* ignore sessionStorage errors */ }
+    // Prüfe zuerst, ob in dieser Tab-Session bereits der entschlüsselte Key vorliegt
+    try {
+      const sess = sessionStorage.getItem('nostr_manual_nsec_plain');
+      if (sess) {
+        console.debug('[auth] sessionStorage plain key found — attempting session auto-login');
+        // Versuche direktes Login mit dem Session-Key (kein Prompt nötig)
+        client.loginWithNsec(sess).then(res => {
+          if (res && whoami) {
+            updateWhoami(whoami, 'manual-session', res.pubkey).then(() => {
+              updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+              if (onUpdate) onUpdate();
+            });
+          }
+        }).catch(e => { console.debug('[auth] session auto-login failed:', e && e.message); });
+        return;
+      }
+    } catch (e) { /* ignore sessionStorage errors */ }
 
-  const stored = getCookie('nostr_manual_nsec');
-  console.debug('[auth] setupAutoManualLoginOnGesture - cookie/localStorage read:', stored ? '[REDACTED]' : null);
-  if (!stored) return;
+    const stored = getCookie('nostr_manual_nsec');
+    console.debug('[auth] setupAutoManualLoginOnGesture - cookie/localStorage read:', stored ? '[REDACTED]' : null);
+    if (!stored) return;
 
     async function doAutoLogin() {
       try {
@@ -279,12 +292,12 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
 
         // Versuche Login mit entschlüsseltem Key
         const res = await client.loginWithNsec(nsecPlain).catch((err) => {
-          console.debug('[auth] auto manual login failed:', err && err.message);
+          console.debug('[auth] auto manual login failed:', err && e.message);
           return null;
         });
         if (res && whoami) {
           console.debug('[auth] auto manual login succeeded pubkey=', res.pubkey);
-          whoami.textContent = `pubkey: ${res.pubkey.slice(0,8)}… (manual-auto)`;
+          await updateWhoami(whoami, 'manual-auto', res.pubkey);
           updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
           if (onUpdate) onUpdate();
         }
