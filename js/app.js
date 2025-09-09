@@ -9,7 +9,7 @@ import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
 import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami } from './auth.js';
-import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents } from './bunker.js';
+import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 
@@ -386,9 +386,27 @@ document.addEventListener('DOMContentLoaded', () => {
   on(els.btnViewMonth, 'click', ()=> setView('month'));
   setView(localStorage.getItem('view') || 'cards');
 
-  // Auto-Reconnect
-  autoReconnectBunker(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
 
+  // Auto-Reconnect
+  autoReconnectBunker(els.whoami, () => updateAuthUI({
+    btnNew: els.btnNew,
+    btnLogin: els.btnLogin,
+    btnLogout: els.btnLogout,
+    btnBunker: els.btnBunker,
+    btnManual: els.btnManual,
+    btnNip07: els.btnNip07,
+    btnLoginMenu: els.btnLoginMenu
+  }));
+  initNip46FromUrl(els.whoami, () => updateAuthUI({
+    btnNew: els.btnNew,
+    btnLogin: els.btnLogin,
+    btnLogout: els.btnLogout,
+    btnBunker: els.btnBunker,
+    btnManual: els.btnManual,
+    btnNip07: els.btnNip07,
+    btnLoginMenu: els.btnLoginMenu
+  }));
+  
   // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
   if (els.btnLoginMenu && els.loginMenu) {
     on(els.btnLoginMenu, 'click', () => {

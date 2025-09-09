@@ -1,4 +1,20 @@
 // js/nostr.js
+
+// --- Pre-Capture of WP handoff params (runs at module import) ---
+(() => {
+  try {
+    const p = new URLSearchParams(location.search);
+    const keys = ['wp_name','npub','nprofile','nip46','connect'];
+    const bag = {};
+    let has = false;
+    for (const k of keys) {
+      const v = p.get(k);
+      if (v) { bag[k]=v; has = true; }
+    }
+    if (has) localStorage.setItem('wp_handoff_params', JSON.stringify(bag));
+  } catch {}
+})();
+
 // Nostr helpers: auth, fetch, publish (NIP-52: kind 31923)
 import { Config } from './config.js';
 import { uid, b64 } from './utils.js';

@@ -206,3 +206,42 @@ export async function setupBunkerEvents(whoami, onUpdate) {
     }
   });
 }
+
+// wordpress bunker deeplink handling
+
+export async function initNip46FromUrl(whoami, onUpdate) {
+  try {
+    const p = new URLSearchParams(location.search);
+    const uri = p.get('nip46') || p.get('connect');
+    const npub = p.get('npub') || p.get('nprofile') || p.get('nip05');
+
+    if (uri) {
+      try { localStorage.setItem('nip46_connect_uri', uri); } catch {}
+      // URL aufräumen, damit Refresh nicht erneut auslöst
+      try { history.replaceState({}, '', location.pathname); } catch {}
+      // Sofort verbinden (euer connectBunker wirft Events & aktualisiert signer)
+      try {
+        const res = await client.connectBunker(uri, { openAuth: true });
+        window.dispatchEvent(new CustomEvent('nip46-connected', { detail: { pubkey: res?.pubkey || '' } }));
+      } catch (e) {
+        console.warn('[NIP-46 deeplink] connect failed:', e);
+      }
+    }
+
+    if (npub && whoami) {
+      // Einfaches WhoAmI-Vorfüllen (echte Metadaten nachladen)
+      (async () => {
+        const meta = await getAuthorMeta(npub).catch(() => null);
+        if (meta?.name) {
+          whoami.innerHTML = `<span title="pubkey: ${npub.slice(0,8)}… (deeplink)">${meta.name}</span>`;
+        } else {
+          whoami.textContent = `pubkey: ${npub.slice(0,8)}…`;
+        }
+        if (onUpdate) onUpdate();
+      })();
+    } else if (onUpdate) onUpdate();
+  } catch (e) {
+    console.warn('[NIP-46 deeplink] init error:', e);
+    if (onUpdate) onUpdate();
+  }
+}

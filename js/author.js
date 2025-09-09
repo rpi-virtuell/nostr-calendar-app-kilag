@@ -1,6 +1,26 @@
 import { client } from './nostr.js';
 import { Config } from './config.js';
 
+
+// ---  URL-Param + LocalStorage Helpers ---
+function readHandoff() {
+  try {
+    const raw = localStorage.getItem('wp_handoff_params');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function safeTrim(s) { return (typeof s === 'string' ? s.trim() : ''); }
+
+function getURLParam(key) {
+  try { return new URLSearchParams(location.search).get(key); } catch { return null; }
+}
+function cacheWpName(hex, name) {
+  try { localStorage.setItem(`wp_name_hint:${hex}`, name); } catch {}
+}
+function loadCachedWpName(hex) {
+  try { return localStorage.getItem(`wp_name_hint:${hex}`); } catch { return null; }
+}
+
 // Bech32 / npub helpers (dupliziert aus nostr.js für Unabhängigkeit)
 const __CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 function __b32Polymod(values) {
@@ -73,9 +93,30 @@ export async function getAuthorMeta(npub) {
       return null;
     }
 
-    await client.initPool();
+    // 1) WP-Fallback: zuerst in URL, dann in localStorage (Pre-Capture)
+    let wpName = null;
+    try {
+      const url = new URLSearchParams(location.search);
+      wpName =
+        url.get('wp_name') ||
+        url.get('display_name') ||
+        url.get('name');
+    } catch {}
 
-    // Verwende breitere Relays 
+    if (!safeTrim(wpName)) {
+      const bag = readHandoff();
+      if (bag) {
+        wpName = bag.wp_name || bag.display_name || bag.name || null;
+      }
+    }
+
+    if (safeTrim(wpName)) {
+      const n = safeTrim(wpName);
+      return { name: n, display_name: n, _source: 'wp-fallback' };
+    }
+
+    // 2) Wie bisher: Nostr Profil-Event (Kind 0) versuchen
+    await client.initPool();
     const relays = [
       'wss://relay.damus.io',
       'wss://relay.snort.social',
@@ -84,11 +125,12 @@ export async function getAuthorMeta(npub) {
     ];
     const event = await client.pool.get(relays, {
       authors: [hex],
-      kinds: [0], // Kind 0 = Metadaten (Profil)
+      kinds: [0],
     });
 
     if (event) {
-      return JSON.parse(event.content);
+      const meta = JSON.parse(event.content);
+      return meta;
     } else {
       console.warn('Kein Profil-Event für npub gefunden:', npub);
       return null;

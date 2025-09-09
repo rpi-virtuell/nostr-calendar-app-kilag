@@ -134,6 +134,7 @@ export async function logout(els, whoami) {
   localStorage.removeItem('nostr_sk_hex');
   localStorage.removeItem('nip46_connect_uri');
   localStorage.removeItem('nip46_client_sk_hex');
+  localStorage.removeItem('wp_handoff_params');
   // Entferne gespeicherten manuellen Key (Cookie) beim Logout
   deleteCookie('nostr_manual_nsec');
   // Entferne auch den entschlüsselten Key aus sessionStorage (falls gesetzt)
