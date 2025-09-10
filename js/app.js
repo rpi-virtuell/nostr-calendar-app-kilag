@@ -116,6 +116,18 @@ function initEls() {
   }
 }
 
+// Simple toast helper (global small notification)
+function toast(msg, { timeout = 3000, type = 'info' } = {}){
+  try{
+    let el = document.getElementById('app-toast');
+    if(!el){ el = document.createElement('div'); el.id = 'app-toast'; el.className = 'toast'; document.body.appendChild(el); }
+    el.textContent = msg;
+    el.className = 'toast ' + type;
+    el.style.opacity = '1';
+    setTimeout(()=>{ try{ el.style.opacity = '0'; }catch{} }, timeout);
+  }catch(e){ console.log('[toast]', msg); }
+}
+
 // THEME
 function applyTheme(name){
   document.body.classList.remove('theme-light','theme-dark','theme-custom');
@@ -352,8 +364,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     try{
-      const { signed, d } = await client.publish(data);
+      console.log('[DEBUG] Publishing event...', data);
+      const { signed, d, ok } = await client.publish(data);
       els.modal.close();
+      if(ok) toast('Termin erfolgreich veröffentlicht', { type: 'success' });
+      else toast('Termin veröffentlicht (keine Relay-Bestätigung)', { type: 'warn' });
       await refresh();
     }catch(err){
       console.error(err);
@@ -362,15 +377,30 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   on(els.btnDelete, 'click', async ()=>{
     const data = getFormData();
+    // Prefer explicit delete by event id (hex) to create kind-5 tombstone
+    const evId = data.id || null;
+    if (evId) {
+      try{
+        const res = await client.deleteEvent(evId);
+        els.modal.close();
+        if(res.ok) toast('Termin gelöscht', { type: 'success' });
+        else toast('Termin gelöscht (keine Relay-Bestätigung)', { type: 'warn' });
+        await refresh();
+      }catch(err){ console.error(err); alert('Löschen fehlgeschlagen.'); }
+      return;
+    }
+
+    // Fallback: wenn keine event-id vorhanden, verwende d-tag und markiere als 'cancelled'
+    const dTag = data.d || null;
+    if(!dTag){ alert('Kein Event-Identifier gefunden (weder id noch d-tag).'); return; }
     data.status = 'cancelled';
     try{
-      await client.publish(data);
+      const r = await client.publish(data);
       els.modal.close();
+      if(r.ok) toast('Termin aktualisiert', { type: 'success' });
+      else toast('Termin aktualisiert (keine Relay-Bestätigung)', { type: 'warn' });
       await refresh();
-    }catch(err){
-      console.error(err);
-      alert('Update fehlgeschlagen.');
-    }
+    }catch(err){ console.error(err); alert('Update fehlgeschlagen.'); }
   });
 
   // Upload

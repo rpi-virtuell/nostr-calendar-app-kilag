@@ -4,7 +4,7 @@ export const Config = {
     'wss://relay-rpi.edufeed.org'
   ],
   // Optional: auf bestimmte Autoren einschränken (npub, hex oder leer lassen)
-  allowedAuthors: ["54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913", "6f50351f348f571316427ed65397e867b9c4f56f0911be9350c24bf97b36c393"],
+  allowedAuthors: ["54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913", "6f50351f348f571316427ed65397e867b9c4f56f0911be9350c24bf97b36c393", "33633f1ee42b18d4f9439bda97cf8c760704d408c70e7b0bbd3ccb8321137a92"],
   defaultTheme: 'light',
   // Optionaler NIP-96 Upload-Endpunkt (z. B. https://media.server/api/upload )
   mediaUploadEndpoint: '',

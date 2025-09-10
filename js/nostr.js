@@ -490,11 +490,16 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
 
   // ---- Publish
   async publish(data) {
+    console.debug('NostrClient.publish', data);
     if (!this.signer) await this.login();
     await this.initPool();
     await loadTools();
-    const { evt } = this.toEventTemplate(data);
+    console.debug('NostrClient.publish using signer type', this.signer?.type);
+    const { evt, d } = this.toEventTemplate(data);
+    console.debug('NostrClient.publish event template', evt);
     const signed = await this.signer.signEvent(evt);
+    console.debug('NostrClient.publish signed event', signed);
+    
 
     // publish zu allen Relays; robust gegenüber verschiedenen pool-APIs und
     // verhindert unhandled promise rejections, indem wir alle relevanten
@@ -542,13 +547,15 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
     };
 
+    let relayResults = [];
     try {
       if (Array.isArray(pubs) && pubs.length) {
         const pPromises = pubs.map(p => makePubPromise(p, 800));
         // Wartet darauf, dass mindestens eine Relay-Antwort kommt (oder Timeout)
         await Promise.race(pPromises);
-        // kleine Grace-Periode: alle Promises sauber auflösen/ablehnen (ohne throw)
-        await Promise.allSettled(pPromises);
+        // Sammle alle Ergebnisse (ohne throw)
+        const settled = await Promise.allSettled(pPromises);
+        relayResults = settled.map(s => (s.status === 'fulfilled' ? s.value : { ok: false, err: s.reason }));
       } else {
         await new Promise(res => setTimeout(res, 200));
       }
@@ -556,7 +563,28 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       console.warn('publish wait error', e);
     }
 
-    return { signed };
+    // Erfolg wenn mindestens ein Relay ok=true oder seen=true
+    const ok = relayResults.some(r => r && (r.ok === true || r.seen === true));
+    return { signed, d, ok, relayResults };
+  }
+
+  // ---- Löschen eines Termins (markiert den Termin als 'deleted' durch ein neues Event mit gleichem d-Tag)
+  // Liefert das gleiche Ergebnisformat wie publish.
+  async deleteEvent(dTag) {
+    if (!dTag) throw new Error('deleteEvent requires a d-tag identifier');
+    // minimaler Payload: d-Tag setzen, status deleted, leeren Content
+    const now = Math.floor(Date.now() / 1000);
+    const data = {
+      title: 'deleted',
+      starts: now,
+      ends: now,
+      status: 'deleted',
+      content: '',
+      d: dTag,
+      tags: []
+    };
+    // Reuse publish path
+    return await this.publish(data);
   }
   // ---- Events holen (FAST-PATH → 1 Relay, kleines limit) + Fallback
   async fetchEvents({ sinceDays = 365, authors = Config.allowedAuthors }) {
@@ -586,7 +614,27 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
         const prev = latest.get(d);
         if (!prev || e.created_at > prev.created_at) latest.set(d, e);
       }
-      return [...latest.values()].sort((a, b) => a.created_at - b.created_at);
+      // Remove items that have been tombstoned by kind-5 events referencing their id
+      const latestVals = [...latest.values()];
+      const ids = latestVals.map(ev => ev.id).filter(Boolean);
+      if (ids.length) {
+        try {
+          const tombs = await this.listFromPool(Config.relays, { kinds: [5], '#e': ids }, 2000).catch(() => []);
+          if (Array.isArray(tombs) && tombs.length) {
+            for (const t of tombs) {
+              const ref = t.tags?.find(x => x[0] === 'e')?.[1];
+              if (!ref) continue;
+              // find value with matching id and remove from latest
+              for (const [k, v] of latest.entries()) {
+                if (v && v.id === ref) { latest.delete(k); break; }
+              }
+            }
+          }
+        } catch (e) { console.warn('tombstone fast-path check failed', e); }
+      }
+      // Filter explicit 'deleted' status tag as well
+      const arr = [...latest.values()].filter(ev => (ev.tags.find(t=>t[0]==='status')?.[1] || '') !== 'deleted');
+      return arr.sort((a, b) => a.created_at - b.created_at);
     }
 
     // -------- Fallback (robust) --------
@@ -616,7 +664,27 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       const prev = latest.get(d);
       if (!prev || e.created_at > prev.created_at) latest.set(d, e);
     }
-    return [...latest.values()].sort((a, b) => a.created_at - b.created_at);
+    // Also check for kind-5 tombstones that reference event ids and remove them
+    try {
+      const latestVals = [...latest.values()];
+      const ids = latestVals.map(ev => ev.id).filter(Boolean);
+      if (ids.length) {
+        const tombs = await this.listFromPool(Config.relays, { kinds: [5], '#e': ids }, 3000).catch(() => []);
+        if (Array.isArray(tombs) && tombs.length) {
+          for (const t of tombs) {
+            const ref = t.tags?.find(x => x[0] === 'e')?.[1];
+            if (!ref) continue;
+            for (const [k, v] of latest.entries()) {
+              if (v && v.id === ref) { latest.delete(k); break; }
+            }
+          }
+        }
+      }
+    } catch (e) { console.warn('tombstone fallback check failed', e); }
+
+    // Filter out explicit deletions so deleted items are not listed
+    const arr2 = [...latest.values()].filter(ev => (ev.tags.find(t=>t[0]==='status')?.[1] || '') !== 'deleted');
+    return arr2.sort((a, b) => a.created_at - b.created_at);
   }
 }
 
