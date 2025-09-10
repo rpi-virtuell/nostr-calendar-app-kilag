@@ -356,7 +356,7 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
               const w = window.open(url, '_blank', 'noopener,noreferrer');
               if (!w) {
                 navigator.clipboard?.writeText(url).catch(()=>{});
-                alert('Bitte diese Autorisierungs-URL öffnen (Link in Zwischenablage):\n' + url);
+                // alert('Bitte diese Autorisierungs-URL öffnen (Link in Zwischenablage):\n' + url);
               }
             } catch (e) {
               navigator.clipboard?.writeText(url).catch(()=>{});
@@ -496,30 +496,68 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
     const { evt } = this.toEventTemplate(data);
     const signed = await this.signer.signEvent(evt);
 
-    // publish zu allen Relays; nicht hängen bleiben
+    // publish zu allen Relays; robust gegenüber verschiedenen pool-APIs und
+    // verhindert unhandled promise rejections, indem wir alle relevanten
+    // Events (ok/failed/seen/error) abonnieren und Promise niemals ablehnen.
     let pubs = [];
-    try { pubs = this.pool.publish ? this.pool.publish(Config.relays, signed) : []; } catch { }
+    try { pubs = this.pool.publish ? this.pool.publish(Config.relays, signed) : []; } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
+
+    const makePubPromise = (p, timeout = 1200) => {
+      if (!p) return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
+      // Wenn p ein thenable ist (Promise)
+      if (typeof p.then === 'function') {
+        return Promise.race([
+          p.then(() => ({ ok: true })).catch(err => ({ ok: false, err })),
+          new Promise(res => setTimeout(() => res({ ok: null }), timeout))
+        ]);
+      }
+      // Wenn p ein Event-Emitter-ähnliches Publish-Objekt ist
+      if (typeof p.on === 'function') {
+        return new Promise(res => {
+          let settled = false;
+          const cleanup = () => {
+            settled = true;
+            try { p.off && p.off('ok', onOk); } catch {}
+            try { p.off && p.off('failed', onFailed); } catch {}
+            try { p.off && p.off('seen', onSeen); } catch {}
+            try { p.off && p.off('error', onFailed); } catch {}
+            clearTimeout(timer);
+          };
+          const onOk = () => { if (!settled) { cleanup(); res({ ok: true }); } };
+          const onFailed = (msg) => { if (!settled) { cleanup(); res({ ok: false, msg }); } };
+          const onSeen = () => { if (!settled) { cleanup(); res({ ok: true, seen: true }); } };
+          const timer = setTimeout(() => { if (!settled) { cleanup(); res({ ok: null }); } }, timeout);
+          try {
+            p.on('ok', onOk);
+            p.on('failed', onFailed);
+            p.on('seen', onSeen);
+            p.on('error', onFailed);
+          } catch (e) {
+            // defensiv: falls on()/off() nicht verfügbar oder Fehler werfen
+            if (!settled) { cleanup(); res({ ok: null }); }
+          }
+        });
+      }
+      // Fallback: warte kurz
+      return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
+    };
 
     try {
       if (Array.isArray(pubs) && pubs.length) {
-        await Promise.race(pubs.map(p => {
-          if (typeof p?.on === 'function') {
-            return new Promise(res => {
-              let settled = false;
-              p.on('ok', () => { if (!settled) { settled = true; res(); } });
-              setTimeout(() => { if (!settled) { settled = true; res(); } }, 800);
-            });
-          }
-          return new Promise(res => setTimeout(res, 800));
-        }));
+        const pPromises = pubs.map(p => makePubPromise(p, 800));
+        // Wartet darauf, dass mindestens eine Relay-Antwort kommt (oder Timeout)
+        await Promise.race(pPromises);
+        // kleine Grace-Periode: alle Promises sauber auflösen/ablehnen (ohne throw)
+        await Promise.allSettled(pPromises);
       } else {
         await new Promise(res => setTimeout(res, 200));
       }
-    } catch { }
+    } catch (e) {
+      console.warn('publish wait error', e);
+    }
 
     return { signed };
   }
-
   // ---- Events holen (FAST-PATH → 1 Relay, kleines limit) + Fallback
   async fetchEvents({ sinceDays = 365, authors = Config.allowedAuthors }) {
     const since = Math.floor(Date.now() / 1000) - (sinceDays * 86400);

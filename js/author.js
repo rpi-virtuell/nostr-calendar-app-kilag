@@ -121,7 +121,9 @@ export async function getAuthorMeta(npub) {
       'wss://relay.damus.io',
       'wss://relay.snort.social',
       'wss://nostr.wine',
-      'wss://nos.lol'
+      'wss://nos.lol',
+      'wss://relay.nostr.band',
+      ...Config.relays
     ];
     const event = await client.pool.get(relays, {
       authors: [hex],

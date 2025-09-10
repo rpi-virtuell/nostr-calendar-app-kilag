@@ -18,6 +18,57 @@ export function fillFormFromEvent(e){
   setEditableChips(tags);
 }
 
+// Debug-Helfer: füllt das Formular mit Zufallsdaten für Tests
+export function fill_form_for_debugging(){
+  const pick = (arr) => arr[Math.floor(Math.random()*arr.length)];
+  const randInt = (min,max) => Math.floor(Math.random()*(max-min+1))+min;
+  const now = Math.floor(Date.now()/1000);
+  const startSecs = now + randInt(60, 60*60*24*7); // in 1min..7d
+  const endsSecs = startSecs + randInt(30*60, 3*60*60); // 30min..3h
+
+  const titles = ['Testtermin','Demo-Meeting','Probe-Event','Lunch','Sitzung'];
+  const title = `${pick(titles)} ${randInt(1,999)}`;
+
+  const statuses = ['planned','cancelled','movedOnline'];
+  const status = pick(statuses);
+
+  const locations = ['Zoom: https://zoom.us/j/123456789','Haus A, Raum 1','Online','Ort: Stadthalle'];
+  const location = pick(locations);
+
+  const imageUrl = `https://picsum.photos/seed/${uid()}/800/450`;
+  const summary = `Kurze Beschreibung ${randInt(1,999)}.`;
+  const content = `**${title}**\n\n${summary}\n\nWeitere Details hier.`;
+
+  const possibleTags = ['BNE','Interreligiöses','Workshop','Community','Test','Demo'];
+  const tags = [];
+  const tagCount = randInt(1, Math.min(4, possibleTags.length));
+  while(tags.length < tagCount){
+    const t = pick(possibleTags);
+    if(!tags.includes(t)) tags.push(t);
+  }
+
+  const dtag = `d${uid()}`;
+  const id = uid();
+
+  document.getElementById('f-title').value = title;
+  document.getElementById('f-starts').value = secsToLocalInput(startSecs);
+  document.getElementById('f-ends').value = secsToLocalInput(endsSecs);
+  document.getElementById('f-status').value = status;
+  document.getElementById('f-location').value = location;
+  document.getElementById('f-image').value = imageUrl;
+  document.getElementById('f-summary').value = summary;
+  document.getElementById('f-content').value = content;
+  document.getElementById('f-dtag').value = dtag;
+  document.getElementById('f-id').value = id;
+  setEditableChips(tags);
+
+  return {
+    title, starts: startSecs, ends: endsSecs, status, location, image: imageUrl, summary, content, tags, d: dtag, id
+  };
+}
+
+window.fill_form_for_debugging = fill_form_for_debugging; // Debug-Helfer global verfügbar machen 
+
 export function clearForm(){
   for(const id of ['f-title','f-starts','f-ends','f-status','f-location','f-image','f-summary','f-content','f-dtag','f-id']){
     const el = document.getElementById(id);
