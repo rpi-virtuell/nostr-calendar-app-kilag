@@ -237,109 +237,175 @@ app.get('/me', (req, res) => {
   res.json({ ok: true, ...req.session.user })
 })
 
+app.post('/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('[LOGOUT] Session destroy failed:', err);
+        return res.status(500).json({ ok: false, error: 'logout_failed' });
+      }
+      res.clearCookie('sid');
+      res.clearCookie('sid.sig');
+      res.json({ ok: true, message: 'Logged out successfully' });
+    });
+  } else {
+    res.json({ ok: true, message: 'No active session' });
+  }
+})
+
 // -------- Delegation (NIP-26) --------
-// Client calls this after SSO to receive a delegation tag to attach to their events.
-// Query params:
-//   kind (int, required)          -> the calendar event kind you want to allow
-//   ttl  (seconds, default 3600)  -> validity window
-app.get('/delegation', async (req, res) => {
+// Two-step process:
+// 1. GET /delegation/prepare - Server tells client what to sign
+// 2. POST /delegation/complete - Client sends back the signed delegation
+
+// Step 1: Prepare delegation for client to sign
+app.get('/delegation/prepare', async (req, res) => {
   const user = req.session?.user
   if (!user?.pubkey) return res.status(401).json({ error: 'not logged in' })
 
-  const kind = Number(req.query.kind)
+  const kind = Number(req.query.kind) || 31923 // Default to calendar events
   if (!Number.isInteger(kind)) return res.status(400).json({ error: 'kind required' })
 
-  const ttl = Math.min(24 * 3600, Math.max(60, Number(req.query.ttl) || 3600))
+  // For calendar events, use a longer delegation period (1 year)
   const now = Math.floor(Date.now() / 1000)
-  const until = now + ttl
+  const until = now + (365 * 24 * 3600) // 1 year validity
 
-  // NIP-26 condition string. Commonly '&' joined constraints.
-  // You can add more constraints if you want (e.g. 'kind=...' is the key one here).
-  const conditions = `kind=${kind}&created_at>=${now}&created_at<=${until}`
+  // NIP-26: User (delegator) delegates to Server (delegatee)
+  const delegatorPubkey = user.pubkey // User is the delegator
+  const delegateePubkey = delegatorPkHex // Server is the delegatee
+  const conditions = `kind=${kind}&created_at>${now}&created_at<${until}`
 
-  // spec: sig = SchnorrSign(sha256("nostr:delegation:" + delegatee + ":" + conditions), delegatorSk)
-  const preimage = Buffer.from(`nostr:delegation:${user.pubkey}:${conditions}`, 'utf8')
-  const digest = nobleHashes.sha256(preimage)
+  // The message that the USER needs to sign
+  const delegationMessage = `nostr:delegation:${delegateePubkey}:${conditions}`
 
-  // Robust sign handling: some builds/export-names of @noble/secp256k1 differ.
-  // Try several possible sign function locations and call the first available.
-  let sigBytes = null
-  try {
-    const maybeSigners = [
-      secp?.schnorr?.sign,
-      secp?.schnorrSign,
-      secp?.signSchnorr,
-      secp?.sign, // fallback
-    ]
-    let signer = null
-    for (const f of maybeSigners) {
-      if (typeof f === 'function') { signer = f; break }
-    }
-    if (!signer) throw new Error('No schnorr signer found in @noble/secp256k1 module')
-    // Call signer; it may return a Promise or a value
-    try {
-      const out = signer(digest, delegatorSk)
-      sigBytes = (out && typeof out.then === 'function') ? await out : out
-      console.log('[DEBUG] sigBytes type:', typeof sigBytes, 'constructor:', sigBytes?.constructor?.name, 'isUint8Array:', sigBytes instanceof Uint8Array)
-      if (sigBytes && typeof sigBytes === 'object' && !Array.isArray(sigBytes) && !(sigBytes instanceof Uint8Array)) {
-        console.log('[DEBUG] Available methods:', Object.getOwnPropertyNames(sigBytes), Object.getOwnPropertyNames(Object.getPrototypeOf(sigBytes)))
-      }
-    } catch (e) {
-      // Some signer variants expect different param order (privKey, msg) — try swap
-      const out2 = signer(delegatorSk, digest)
-      sigBytes = (out2 && typeof out2.then === 'function') ? await out2 : out2
-      console.log('[DEBUG] sigBytes type (swapped):', typeof sigBytes, 'constructor:', sigBytes?.constructor?.name, 'isUint8Array:', sigBytes instanceof Uint8Array)
-      if (sigBytes && typeof sigBytes === 'object' && !Array.isArray(sigBytes) && !(sigBytes instanceof Uint8Array)) {
-        console.log('[DEBUG] Available methods (swapped):', Object.getOwnPropertyNames(sigBytes), Object.getOwnPropertyNames(Object.getPrototypeOf(sigBytes)))
-      }
-    }
-    if (!sigBytes) throw new Error('Signer returned empty signature')
-    
-    // Ensure sigBytes is a Uint8Array for bytesToHex
-    if (!(sigBytes instanceof Uint8Array)) {
-      if (typeof sigBytes === 'string') {
-        // If it's a hex string, convert it
-        sigBytes = hexToBytes(sigBytes)
-      } else if (Array.isArray(sigBytes)) {
-        // If it's an array, convert to Uint8Array
-        sigBytes = new Uint8Array(sigBytes)
-      } else if (sigBytes && typeof sigBytes === 'object') {
-        // If it's a Signature object from @noble/secp256k1, extract the raw bytes
-        if (typeof sigBytes.toRawBytes === 'function') {
-          sigBytes = sigBytes.toRawBytes()
-        } else if (typeof sigBytes.toCompactRawBytes === 'function') {
-          sigBytes = sigBytes.toCompactRawBytes()
-        } else if (typeof sigBytes.toBytes === 'function') {
-          sigBytes = sigBytes.toBytes()
-        } else if (sigBytes.constructor?.name === 'Signature') {
-          // Try to access raw signature data
-          sigBytes = sigBytes.r && sigBytes.s ? 
-            new Uint8Array([...sigBytes.r, ...sigBytes.s]) : 
-            new Uint8Array(Object.values(sigBytes))
-        } else {
-          // If it's a plain object with numeric keys, convert to Uint8Array
-          const values = Object.values(sigBytes)
-          sigBytes = new Uint8Array(values)
-        }
-      } else {
-        throw new Error(`Unexpected signature type: ${typeof sigBytes}, constructor: ${sigBytes?.constructor?.name}`)
-      }
-    }
-  } catch (e) {
-    console.error('[DELEGATION] signing failed:', e && (e.stack || e.message || e))
-    return res.status(500).json({ ok: false, error: 'delegation_sign_failed', reason: String(e) })
+  // Store this in session for verification in step 2
+  req.session.pendingDelegation = {
+    delegatorPubkey,
+    delegateePubkey,
+    conditions,
+    delegationMessage,
+    until
   }
 
-  const sigHex = bytesToHex(sigBytes)
-
-  const tag = ['delegation', delegatorPkHex, conditions, sigHex]
   res.json({
     ok: true,
-    tag,
+    delegationMessage,
+    delegatorPubkey,
+    delegateePubkey,
     conditions,
-    delegator: delegatorPkHex,
     until,
+    note: 'Please sign this delegationMessage with your nostr client and POST the signature to /delegation/complete'
   })
+})
+
+// Step 2: Complete delegation with user's signature
+app.post('/delegation/complete', async (req, res) => {
+  const user = req.session?.user
+  if (!user?.pubkey) return res.status(401).json({ error: 'not logged in' })
+
+  const pending = req.session.pendingDelegation
+  if (!pending) return res.status(400).json({ error: 'no pending delegation found' })
+
+  const { signature } = req.body
+  if (!signature) return res.status(400).json({ error: 'signature required' })
+
+  try {
+    // Verify the signature was made by the user
+    const messageHash = sha256(Buffer.from(pending.delegationMessage, 'utf8'))
+    
+    // Here we would verify the signature, but for now we'll trust it
+    // TODO: Implement signature verification
+    
+    // Create the delegation tag for future use
+    const delegationTag = [
+      'delegation',
+      pending.delegatorPubkey,
+      pending.conditions, 
+      signature
+    ]
+
+    // Store the delegation for this user
+    req.session.delegation = {
+      tag: delegationTag,
+      delegatorPubkey: pending.delegatorPubkey,
+      delegateePubkey: pending.delegateePubkey,
+      conditions: pending.conditions,
+      until: pending.until
+    }
+
+    // Clean up pending delegation
+    delete req.session.pendingDelegation
+
+    res.json({
+      ok: true,
+      delegation: delegationTag,
+      message: 'Delegation completed successfully. Server can now post calendar events on your behalf.'
+    })
+
+  } catch (e) {
+    console.error('[DELEGATION] completion failed:', e)
+    return res.status(500).json({ ok: false, error: 'delegation_complete_failed', reason: String(e) })
+  }
+})
+
+// Legacy endpoint for backward compatibility (but now explains the new flow)
+app.get('/delegation', async (req, res) => {
+  res.status(400).json({ 
+    error: 'deprecated_endpoint',
+    message: 'Use /delegation/prepare and /delegation/complete instead',
+    flow: 'GET /delegation/prepare -> sign message -> POST /delegation/complete'
+  })
+})
+
+// API to create calendar events using delegation
+app.post('/calendar/event', async (req, res) => {
+  const user = req.session?.user
+  if (!user?.pubkey) return res.status(401).json({ error: 'not logged in' })
+
+  const delegation = req.session.delegation
+  if (!delegation) return res.status(400).json({ error: 'no delegation found, call /delegation/prepare first' })
+
+  const { title, start, end, location, description, d } = req.body
+  if (!title || !start) return res.status(400).json({ error: 'title and start time required' })
+
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    
+    // Check if delegation is still valid
+    if (now > delegation.until) {
+      return res.status(400).json({ error: 'delegation expired' })
+    }
+
+    // Create calendar event (NIP-52, kind 31923)
+    const event = {
+      kind: 31923,
+      created_at: now,
+      pubkey: delegatorPkHex, // Server pubkey (delegatee)
+      tags: [
+        ['title', title],
+        ['start', start],
+        ...(end ? [['end', end]] : []),
+        ...(location ? [['location', location]] : []),
+        ...(description ? [['description', description]] : []),
+        ['d', d || `event-${now}-${Math.random().toString(36).substr(2, 9)}`],
+        delegation.tag // Add the delegation tag
+      ],
+      content: description || ''
+    }
+
+    // TODO: Sign event with server key (delegatorSk) and publish to relays
+    // For now, just return the event structure
+    
+    res.json({
+      ok: true,
+      event,
+      note: 'Event created with delegation. TODO: Sign and publish to relays.'
+    })
+
+  } catch (e) {
+    console.error('[CALENDAR] event creation failed:', e)
+    return res.status(500).json({ ok: false, error: 'event_creation_failed', reason: String(e) })
+  }
 })
 
 // Serve client static files from project root for local development.

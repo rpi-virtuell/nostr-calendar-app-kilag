@@ -116,15 +116,17 @@ export async function login() {
   return res;
 }
 
-// SSO Login using server delegation
+// SSO Login using server delegation (NIP-26)
 export async function ssoLogin() {
   try {
     // Import Nostr object if not already
     const { Nostr } = await import('./nostr.js');
+    
+    // Step 1: SSO Login first
     const ssoRes = await Nostr.loginWithSSO();
-    const delRes = await Nostr.fetchDelegation({ kind: 31923 });
     client.pubkey = ssoRes.pubkey;
-    // Signing remains NIP-07, but session is set for delegation
+    
+    // Setup NIP-07 signer
     if (window.nostr && window.nostr.getPublicKey) {
       client.signer = {
         type: 'nip07-sso',
@@ -132,7 +134,13 @@ export async function ssoLogin() {
         signEvent: async (evt) => window.nostr.signEvent(evt)
       };
     }
-    return { method: 'sso', pubkey: ssoRes.pubkey, delegator: delRes.delegator };
+    
+    console.log('[Auth] SSO Login successful');
+    return { 
+      method: 'sso', 
+      pubkey: ssoRes.pubkey, 
+      delegator: ssoRes.delegator
+    };
   } catch (err) {
     console.error('SSO Login fehlgeschlagen:', err);
     throw err;
@@ -166,27 +174,50 @@ export async function updateAuthUI(els) {
 
 export async function logout(els, whoami) {
   await client.logout();
+  
+  // Clear all stored data
   localStorage.removeItem('nostr_sk_hex');
   localStorage.removeItem('nip46_connect_uri');
   localStorage.removeItem('nip46_client_sk_hex');
   localStorage.removeItem('wp_handoff_params');
-  // Entferne gespeicherten manuellen Key (Cookie) beim Logout
   deleteCookie('nostr_manual_nsec');
-  // Entferne auch den entschlüsselten Key aus sessionStorage (falls gesetzt)
-  try { sessionStorage.removeItem('nostr_manual_nsec_plain'); } catch (e) { /* ignore */ }
+  
+  // Clear session storage
+  try { 
+    sessionStorage.removeItem('nostr_manual_nsec_plain'); 
+  } catch (e) { /* ignore */ }
 
+  // Clear delegation
+  try {
+    const { clearDelegation } = await import('./nostr.js');
+    clearDelegation();
+  } catch (e) { /* ignore */ }
+
+  // Update UI
   if (whoami) whoami.textContent = '';
-  if (els && els.btnLogin) els.btnLogin.classList.remove('hidden');
-  if (els && els.btnLogout) els.btnLogout.classList.add('hidden');
+  
+  // Update auth UI elements
   updateAuthUI(els || {});
 
-  // Robust: falls Aufrufer nicht alle Buttons übergeben, entferne hidden direkt an den DOM-Elementen
+  // Ensure login elements are visible (robust fallback)
   try {
-    const ensureVisible = (id) => { try { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); } catch(e){} };
+    const ensureVisible = (id) => { 
+      try { 
+        const el = document.getElementById(id); 
+        if (el) el.classList.remove('hidden'); 
+      } catch(e){} 
+    };
     ensureVisible('btn-login');
     ensureVisible('btn-manual');
     ensureVisible('btn-nip07');
     ensureVisible('btn-login-menu');
+    ensureVisible('btn-sso');
+  } catch (e) { /* ignore */ }
+  
+  // Hide delegation container
+  try {
+    const delegationContainer = document.getElementById('delegation-container');
+    if (delegationContainer) delegationContainer.classList.add('hidden');
   } catch (e) { /* ignore */ }
 }
 
@@ -299,7 +330,22 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
   });
 
   on(btnLogout, 'click', async () => {
+    // First, logout from server session
+    try {
+      const response = await fetch('http://localhost:8787/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      console.log('[Auth] Server logout:', response.ok ? 'success' : 'failed');
+    } catch (e) {
+      console.warn('[Auth] Server logout failed:', e.message);
+    }
+    
+    // Then clear local data
     logout({ btnNew, btnLogin, btnLogout, btnBunker, btnSso }, whoami);
+    
+    // Trigger update callback
+    if (onUpdate) onUpdate();
   });
 
   // Initial UI-Update (async)
