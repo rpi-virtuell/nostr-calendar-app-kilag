@@ -560,63 +560,68 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
   }
   // ---- Events holen (FAST-PATH → 1 Relay, kleines limit) + Fallback
   async fetchEvents({ sinceDays = 365, authors = Config.allowedAuthors }) {
-    const since = Math.floor(Date.now() / 1000) - (sinceDays * 86400);
-    const baseLimit = 1000;
+    try {
+      const since = Math.floor(Date.now() / 1000) - (sinceDays * 86400);
+      const baseLimit = 1000;
 
-    await this.initPool();
+      await this.initPool();
 
-    // Autoren normalisieren (npub→hex, hex passt durch)
-    let authorsHex = Array.isArray(authors) ? authors.map(a => npubToHex(a) || a).filter(Boolean) : [];
-    const filter = { kinds: [31923], since, limit: baseLimit };
-    if (authorsHex && authorsHex.length) filter.authors = authorsHex;
+      // Autoren normalisieren (npub→hex, hex passt durch)
+      let authorsHex = Array.isArray(authors) ? authors.map(a => npubToHex(a) || a).filter(Boolean) : [];
+      const filter = { kinds: [31923], since, limit: baseLimit };
+      if (authorsHex && authorsHex.length) filter.authors = authorsHex;
 
-    // -------- FAST PATH --------
-    // 1) schnellsten Relay messen
-    const fastRelay = await this.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
-    // 2) kleines Limit für schnellen „first paint“
-    const fastFilter = { ...filter, limit: Math.min(250, filter.limit || 250) };
-    // 3) Single-relay REQ (EOSE) → in der Praxis ~wie dein Test
-    let fast = [];
-    try { fast = await this.listByWebSocketOne(fastRelay, fastFilter, 2500); } catch { fast = []; }
-    if (fast.length) {
-      // dedupe + sorten und direkt zurückgeben (spürbar schneller)
+      // -------- FAST PATH --------
+      // 1) schnellsten Relay messen
+      const fastRelay = await this.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+      // 2) kleines Limit für schnellen „first paint“
+      const fastFilter = { ...filter, limit: Math.min(250, filter.limit || 250) };
+      // 3) Single-relay REQ (EOSE) → in der Praxis ~wie dein Test
+      let fast = [];
+      try { fast = await this.listByWebSocketOne(fastRelay, fastFilter, 2500); } catch { fast = []; }
+      if (fast.length) {
+        // dedupe + sorten und direkt zurückgeben (spürbar schneller)
+        const latest = new Map();
+        for (const e of fast) {
+          const d = e.tags?.find(t => t[0] === 'd')?.[1] || e.id;
+          const prev = latest.get(d);
+          if (!prev || e.created_at > prev.created_at) latest.set(d, e);
+        }
+        return [...latest.values()].sort((a, b) => a.created_at - b.created_at);
+      }
+
+      // -------- Fallback (robust) --------
+      const TIMEOUT = 6000;
+      const poolP = this.listFromPool(Config.relays, filter, TIMEOUT).catch(() => []);
+      const wsP = this.listByWebSocket(Config.relays, filter, TIMEOUT).catch(() => []);
+      const both = await Promise.race([
+        Promise.allSettled([poolP, wsP]),
+        new Promise(res => setTimeout(() => res([
+          { status: 'fulfilled', value: [] },
+          { status: 'fulfilled', value: [] }
+        ]), TIMEOUT + 200))
+      ]);
+
+      let events = [];
+      if (Array.isArray(both)) {
+        const [pRes, wRes] = both;
+        const pOk = pRes?.status === 'fulfilled' ? (pRes.value || []) : [];
+        const wOk = wRes?.status === 'fulfilled' ? (wRes.value || []) : [];
+        events = pOk.length ? pOk : wOk;
+        if (!events.length) events = pOk.concat(wOk);
+      }
+
       const latest = new Map();
-      for (const e of fast) {
+      for (const e of (events || [])) {
         const d = e.tags?.find(t => t[0] === 'd')?.[1] || e.id;
         const prev = latest.get(d);
         if (!prev || e.created_at > prev.created_at) latest.set(d, e);
       }
       return [...latest.values()].sort((a, b) => a.created_at - b.created_at);
+    } catch (err) {
+      console.error('fetchEvents failed:', err);
+      return [];
     }
-
-    // -------- Fallback (robust) --------
-    const TIMEOUT = 6000;
-    const poolP = this.listFromPool(Config.relays, filter, TIMEOUT).catch(() => []);
-    const wsP = this.listByWebSocket(Config.relays, filter, TIMEOUT).catch(() => []);
-    const both = await Promise.race([
-      Promise.allSettled([poolP, wsP]),
-      new Promise(res => setTimeout(() => res([
-        { status: 'fulfilled', value: [] },
-        { status: 'fulfilled', value: [] }
-      ]), TIMEOUT + 200))
-    ]);
-
-    let events = [];
-    if (Array.isArray(both)) {
-      const [pRes, wRes] = both;
-      const pOk = pRes?.status === 'fulfilled' ? (pRes.value || []) : [];
-      const wOk = wRes?.status === 'fulfilled' ? (wRes.value || []) : [];
-      events = pOk.length ? pOk : wOk;
-      if (!events.length) events = pOk.concat(wOk);
-    }
-
-    const latest = new Map();
-    for (const e of (events || [])) {
-      const d = e.tags?.find(t => t[0] === 'd')?.[1] || e.id;
-      const prev = latest.get(d);
-      if (!prev || e.created_at > prev.created_at) latest.set(d, e);
-    }
-    return [...latest.values()].sort((a, b) => a.created_at - b.created_at);
   }
 }
 

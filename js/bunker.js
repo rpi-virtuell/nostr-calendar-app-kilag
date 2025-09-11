@@ -161,7 +161,12 @@ export async function autoReconnectBunker(whoami, onUpdate) {
   }
   try {
     const res = await client.connectBunker(uri, { openAuth: true });
-    const meta= await getAuthorMeta(res.pubkey);
+    let meta = null;
+    try {
+      meta = await getAuthorMeta(res.pubkey);
+    } catch (e) {
+      console.warn('getAuthorMeta in autoReconnectBunker failed:', e);
+    }
     if (meta && meta.name && whoami) {
       whoami.innerHTML = `<span title="pubkey: ${res.pubkey.slice(0,8)}…(nip46)">${meta.name}</span>`;
     } else
@@ -179,17 +184,26 @@ export async function setupBunkerEvents(whoami, onUpdate) {
     const pk = e.detail?.pubkey || '';
     //korrigiere await geht nicht in event listener
     (async () => {
-      if (!pk) return;
-      const res = { pubkey: pk }; 
-      const meta = await getAuthorMeta(res.pubkey);
-      if (meta && meta.name && whoami) {
-        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">${meta.name}</span>`;
-      } else if (meta && whoami) {
-        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">@${meta.name}</span>`;
-      } else if (pk && whoami) {
-        whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">pubkey: ${pk.slice(0,8)}…</span>  (nip46)`;
+      try {
+        if (!pk) return;
+        const res = { pubkey: pk };
+        let meta = null;
+        try {
+          meta = await getAuthorMeta(res.pubkey);
+        } catch (e) {
+          console.warn('getAuthorMeta in nip46-connected listener failed:', e);
+        }
+        if (meta && meta.name && whoami) {
+          whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">${meta.name}</span>`;
+        } else if (meta && whoami) {
+          whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">@${meta.name}</span>`;
+        } else if (pk && whoami) {
+          whoami.innerHTML = `<span title="pubkey: ${pk.slice(0,8)}… (nip46)">pubkey: ${pk.slice(0,8)}…</span>  (nip46)`;
+        }
+        if (onUpdate) onUpdate();
+      } catch (err) {
+        console.error('nip46-connected listener error:', err);
       }
-      if (onUpdate) onUpdate();
     })();
   });
 

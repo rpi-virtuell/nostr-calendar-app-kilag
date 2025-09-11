@@ -40,6 +40,7 @@ function initEls() {
     modal: document.getElementById('event-modal'),
     btnCloseModal: document.getElementById('close-modal'),
     btnSave: document.getElementById('btn-save'),
+    btnCancelEvent: document.getElementById('btn-cancel-event'),
     btnDelete: document.getElementById('btn-delete'),
     whoami: document.getElementById('whoami'),
     btnLogin: document.getElementById('btn-login'),
@@ -134,6 +135,7 @@ function createTagChip(label) {
 // CRUD
 function openModalForNew(){
   clearForm();
+  els.btnCancelEvent.classList.add('hidden');
   els.btnDelete.classList.add('hidden');
   document.getElementById('modal-title').textContent = 'Neuer Termin';
   els.modal.showModal();
@@ -146,6 +148,7 @@ async function openModalForEdit(evt){
     return;
   }
   fillFormFromEvent(evt);
+  els.btnCancelEvent.classList.remove('hidden');
   els.btnDelete.classList.remove('hidden');
   document.getElementById('modal-title').textContent = 'Termin bearbeiten';
   els.modal.showModal();
@@ -252,7 +255,13 @@ function renderCurrentView(){
 async function refresh(){
   if (els.info) els.info.textContent = 'Lade…';
   console.log('[DEBUG] Loading events...');
-  const events = await client.fetchEvents({ sinceDays: 1000 });
+  let events = [];
+  try {
+    events = await client.fetchEvents({ sinceDays: 1000 });
+  } catch (err) {
+    console.error('refresh failed:', err);
+    if (els.info) els.info.textContent = 'Fehler beim Laden.';
+  }
   console.log(`[DEBUG] Loaded ${events.length} events`);
   state.events = events;
   buildMonthOptions(els.monthSelect, events);
@@ -354,22 +363,85 @@ document.addEventListener('DOMContentLoaded', () => {
     try{
       const { signed, d } = await client.publish(data);
       els.modal.close();
-      await refresh();
+      try {
+        await refresh();
+      } catch (err) {
+        console.error('Refresh after save failed:', err);
+      }
     }catch(err){
       console.error(err);
       alert('Veröffentlichen fehlgeschlagen. Details in der Konsole.');
     }
   });
-  on(els.btnDelete, 'click', async ()=>{
+  on(els.btnCancelEvent, 'click', async ()=>{
     const data = getFormData();
     data.status = 'cancelled';
     try{
       await client.publish(data);
       els.modal.close();
-      await refresh();
+      try {
+        await refresh();
+      } catch (err) {
+        console.error('Refresh after cancel failed:', err);
+      }
     }catch(err){
       console.error(err);
       alert('Update fehlgeschlagen.');
+    }
+  });
+
+  on(els.btnDelete, 'click', async ()=>{
+    const id = document.getElementById('f-id').value.trim();
+    if (!id) {
+      alert('Kein Event zum Löschen.');
+      return;
+    }
+    if (!confirm('Wirklich löschen? Dies entfernt den Termin dauerhaft aus Ihrem Kalender.')) return;
+
+    const evt = {
+      kind: 5,
+      content: '',
+      tags: [['e', id]],
+      created_at: Math.floor(Date.now() / 1000)
+    };
+
+    try {
+      if (!client.signer) throw new Error('Nicht eingeloggt.');
+      await client.initPool();
+      const signed = await client.signer.signEvent(evt);
+
+      const pubs = client.pool.publish(Config.relays, signed);
+      if (Array.isArray(pubs)) {
+        const timeout = 3000;
+        const promises = pubs.map(pub => {
+          if (!pub || typeof pub.on !== 'function') return Promise.resolve();
+          return new Promise(resolve => {
+            const timer = setTimeout(() => resolve(), timeout);
+            const onOk = () => { clearTimeout(timer); resolve(true); };
+            const onFailed = () => { clearTimeout(timer); resolve(false); };
+            try {
+              pub.on('ok', onOk);
+              pub.on('failed', onFailed);
+            } catch (e) {
+              clearTimeout(timer);
+              resolve();
+            }
+          });
+        });
+        await Promise.race(promises);
+        await Promise.allSettled(promises);
+      }
+
+      els.modal.close();
+      try {
+        await refresh();
+      } catch (err) {
+        console.error('Refresh after delete failed:', err);
+      }
+      // alert('Termin gelöscht.');
+    } catch (err) {
+      console.error(err);
+      alert('Löschen fehlgeschlagen: ' + (err.message || err));
     }
   });
 

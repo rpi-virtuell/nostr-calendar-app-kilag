@@ -125,13 +125,23 @@ export async function getAuthorMeta(npub) {
       'wss://relay.nostr.band',
       ...Config.relays
     ];
-    const event = await client.pool.get(relays, {
-      authors: [hex],
-      kinds: [0],
-    });
+    let event = null;
+    try {
+      event = await client.pool.get(relays, {
+        authors: [hex],
+        kinds: [0],
+      });
+    } catch (e) {
+      console.warn('pool.get for author meta failed:', e);
+    }
 
     if (event) {
-      const meta = JSON.parse(event.content);
+      let meta = null;
+      try {
+        meta = JSON.parse(event.content);
+      } catch (e) {
+        console.warn('JSON.parse for author meta failed:', e);
+      }
       return meta;
     } else {
       console.warn('Kein Profil-Event für npub gefunden:', npub);
