@@ -98,8 +98,17 @@ async function decryptWithPassword(password, payloadJson) {
   }
 }
 
-export function isLoggedIn() {
-  return !!(client && client.signer);
+export async function isLoggedIn() {
+  // Prüfe zuerst lokalen Signer
+  if (client && client.signer) return true;
+  // Fallback: Session-Check via Server /me
+  try {
+    const res = await fetch('http://localhost:8787/me', { credentials: 'include' });
+    const data = await res.json();
+    return data.ok && !!data.pubkey;
+  } catch {
+    return false;
+  }
 }
 
 export async function login() {
@@ -107,17 +116,42 @@ export async function login() {
   return res;
 }
 
-export function updateAuthUI(els) {
-  els.btnNew.disabled = !isLoggedIn();
-  els.btnNew.title = isLoggedIn() ? 'Neuen Termin anlegen' : 'Bitte zuerst einloggen';
+// SSO Login using server delegation
+export async function ssoLogin() {
+  try {
+    // Import Nostr object if not already
+    const { Nostr } = await import('./nostr.js');
+    const ssoRes = await Nostr.loginWithSSO();
+    const delRes = await Nostr.fetchDelegation({ kind: 31923 });
+    client.pubkey = ssoRes.pubkey;
+    // Signing remains NIP-07, but session is set for delegation
+    if (window.nostr && window.nostr.getPublicKey) {
+      client.signer = {
+        type: 'nip07-sso',
+        getPublicKey: async () => client.pubkey,
+        signEvent: async (evt) => window.nostr.signEvent(evt)
+      };
+    }
+    return { method: 'sso', pubkey: ssoRes.pubkey, delegator: delRes.delegator };
+  } catch (err) {
+    console.error('SSO Login fehlgeschlagen:', err);
+    throw err;
+  }
+}
+
+export async function updateAuthUI(els) {
+  const loggedIn = await isLoggedIn();
+  els.btnNew.disabled = !loggedIn;
+  els.btnNew.title = loggedIn ? 'Neuen Termin anlegen' : 'Bitte zuerst einloggen';
 
   // Falls ein Dropdown-Trigger übergeben wurde, steuere dessen Sichtbarkeit ebenfalls
-  if (isLoggedIn()) {
+  if (loggedIn) {
     if (els.btnBunker) els.btnBunker.classList.add('hidden');
     if (els.btnLogout) els.btnLogout.classList.remove('hidden');
     if (els.btnLogin) els.btnLogin.classList.add('hidden');
     if (els.btnManual) els.btnManual.classList.add('hidden');
     if (els.btnNip07) els.btnNip07.classList.add('hidden');
+    if (els.btnSso) els.btnSso.classList.add('hidden');
     if (els.btnLoginMenu) els.btnLoginMenu.classList.add('hidden'); // Dropdown ausblenden wenn eingeloggt
   } else {
     if (els.btnBunker) els.btnBunker.classList.remove('hidden');
@@ -125,6 +159,7 @@ export function updateAuthUI(els) {
     if (els.btnLogin) els.btnLogin.classList.remove('hidden');
     if (els.btnManual) els.btnManual.classList.remove('hidden');
     if (els.btnNip07) els.btnNip07.classList.remove('hidden');
+    if (els.btnSso) els.btnSso.classList.remove('hidden');
     if (els.btnLoginMenu) els.btnLoginMenu.classList.remove('hidden'); // Dropdown sichtbar wenn nicht eingeloggt
   }
 }
@@ -170,12 +205,35 @@ export async function updateWhoami(whoami, method, pubkey) {
   }
 }
 
-export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, whoami, btnNew, onUpdate) {
+export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, btnSso, whoami, btnNew, onUpdate) {
+  // SSO Login Handler (neue Option)
+  on(btnSso, 'click', async () => {
+    if (await isLoggedIn()) return;
+    try {
+      // Einfacher visueller Feedback-Flow: Button deaktivieren, then run ssoLogin
+      btnSso.disabled = true;
+      btnSso.textContent = 'SSO…';
+      const res = await ssoLogin();
+      // Nach erfolgreichem Login: Delegation holen (falls nicht bereits)
+      await updateWhoami(whoami, res.method, res.pubkey);
+      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
+      if (onUpdate) onUpdate();
+      // Optional: zeige Success kurz an
+      btnSso.textContent = 'Erfolgreich';
+      setTimeout(()=>{ btnSso.textContent = 'SSO Login'; btnSso.disabled = false; }, 1200);
+    } catch (err) {
+      console.error('SSO Login fehlgeschlagen:', err);
+      alert('Fehler beim SSO Login: ' + (err && err.message));
+      btnSso.disabled = false;
+      btnSso.textContent = 'SSO Login';
+    }
+  });
+
   on(btnLogin, 'click', async () => {
     try {
       const res = await login();
       await updateWhoami(whoami, res.method, res.pubkey);
-      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('Login fehlgeschlagen:', err);
@@ -183,16 +241,16 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
   });
 
   on(btnManual, 'click', async () => {
-    if (isLoggedIn()) return; // Bereits eingeloggt
+    if (await isLoggedIn()) return; // Bereits eingeloggt
     const nsec = prompt('Geben Sie Ihren nsec-Key ein (nsec1... oder Hex):');
     if (!nsec) return;
     try {
       const res = await client.loginWithNsec(nsec);
       await updateWhoami(whoami, 'manual', res.pubkey);
-
+  
       // Komfort: immer den entschlüsselten Key in sessionStorage ablegen (nur aktuelle Tab‑Session)
       try { sessionStorage.setItem('nostr_manual_nsec_plain', nsec); } catch (e) { /* ignore */ }
-
+  
       // Optional: Nutzer fragen, ob Key gespeichert werden soll (verschlüsselt, 30 Tage)
       try {
         const save = confirm('Schlüssel für 30 Tage im Browser speichern (verschlüsselt)? Nicht empfohlen auf gemeinsam genutzten Geräten.');
@@ -214,8 +272,8 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
           deleteCookie('nostr_manual_nsec');
         }
       } catch (e) { /* ignore */ }
-
-      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+  
+      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('Manueller Login fehlgeschlagen:', err);
@@ -224,7 +282,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
   });
 
   on(btnNip07, 'click', async () => {
-    if (isLoggedIn()) return;
+    if (await isLoggedIn()) return;
     try {
       const res = await login(); // Ruft NIP-07 auf, falls verfügbar
       if (res.method !== 'nip07') {
@@ -232,7 +290,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         return;
       }
       await updateWhoami(whoami, res.method, res.pubkey);
-      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('NIP-07 Login fehlgeschlagen:', err);
@@ -241,11 +299,11 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
   });
 
   on(btnLogout, 'click', async () => {
-    logout({ btnNew, btnLogin, btnLogout, btnBunker }, whoami);
+    logout({ btnNew, btnLogin, btnLogout, btnBunker, btnSso }, whoami);
   });
 
-  // Initial UI-Update
-  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnManual, btnNip07 });
+  // Initial UI-Update (async)
+  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnManual, btnNip07, btnSso });
 
   // Auto-Login: Wenn ein manueller nsec-Key per Cookie/localStorage vorhanden ist,
   // versuchen wir den Login erst nach einer User-Geste (z.B. Klick).
@@ -260,8 +318,9 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         client.loginWithNsec(sess).then(res => {
           if (res && whoami) {
             updateWhoami(whoami, 'manual-session', res.pubkey).then(() => {
-              updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
-              if (onUpdate) onUpdate();
+              updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso }).then(() => {
+                if (onUpdate) onUpdate();
+              });
             });
           }
         }).catch(e => { console.debug('[auth] session auto-login failed:', e && e.message); });
@@ -275,7 +334,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
 
     async function doAutoLogin() {
       try {
-        if (isLoggedIn()) return;
+        if (await isLoggedIn()) return;
         // Passwort vom Nutzer abfragen (User‑Gesture gewährleistet, dass prompt nicht blockiert wird)
         const pwd = prompt('Passwort zum Entschlüsseln des gespeicherten Schlüssels eingeben:');
         if (!pwd) {
@@ -290,7 +349,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
           alert('Entschlüsselung fehlgeschlagen: Falsches Passwort oder beschädigte Daten.');
           return;
         }
-
+    
         // Versuche Login mit entschlüsseltem Key
         const res = await client.loginWithNsec(nsecPlain).catch((err) => {
           console.debug('[auth] auto manual login failed:', err && e.message);
@@ -299,7 +358,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         if (res && whoami) {
           console.debug('[auth] auto manual login succeeded pubkey=', res.pubkey);
           await updateWhoami(whoami, 'manual-auto', res.pubkey);
-          updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
+          updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
           if (onUpdate) onUpdate();
         }
       } catch (e) {

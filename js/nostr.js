@@ -1,6 +1,20 @@
 // js/nostr.js
 
-// --- Pre-Capture of WP handoff params (runs at module import) ---
+// GET /api/delegation aufrufen und Werte im Speicher halten.
+let delegationCtx = null;
+export async function loadDelegation(kind = 31923) {
+  try {
+    const res = await fetch(`http://localhost:8787/delegation?kind=${kind}`, { credentials: 'include' });
+    const j = await res.json();
+    if (j && j.ok) {
+      delegationCtx = { tag: j.tag, delegator: j.delegator };
+    }
+  } catch {}
+  return delegationCtx;
+}
+export function getDelegation() { return delegationCtx; }
+
+// --- Pre-Capture of WP handoff params (runs at module import) ---  
 (() => {
   try {
     const p = new URLSearchParams(location.search);
@@ -56,9 +70,67 @@ function nsecToHex(nsec) {
 
 // ---- dyn. load
 async function loadTools() {
-  if (!tools) { tools = await import(pureUrl); }
-  if (!poolMod) { poolMod = await import(poolUrl); }
-  if (!nip46Mod) { try { nip46Mod = await import(nip46Url); } catch (e) { console.warn('NIP-46 module not available', e); } }
+  // Try primary CDN (esm.sh). If it fails (network/CORS), fall back to alternative CDN URLs.
+  const cdnAlternatives = {
+    pure: [
+      pureUrl,
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pure.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pure.js'
+    ],
+    pool: [
+      poolUrl,
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pool.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pool.js'
+    ],
+    nip46: [
+      nip46Url,
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/nip46.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/nip46.js'
+    ]
+  };
+
+  async function tryImport(list) {
+    let lastErr = null;
+    for (const url of list) {
+      try {
+        return await import(url);
+      } catch (e) {
+        lastErr = e;
+        console.debug('[loadTools] import failed for', url, e && (e.message || e));
+        // try next
+      }
+    }
+    // throw the last error for visibility
+    throw lastErr || new Error('dynamic import failed for all candidates');
+  }
+
+  if (!tools) {
+    try {
+      tools = await tryImport(cdnAlternatives.pure);
+    } catch (e) {
+      console.error('[loadTools] failed to load nostr-tools pure module:', e);
+      throw e;
+    }
+  }
+
+  if (!poolMod) {
+    try {
+      poolMod = await tryImport(cdnAlternatives.pool);
+    } catch (e) {
+      console.error('[loadTools] failed to load nostr-tools pool module:', e);
+      throw e;
+    }
+  }
+
+  if (!nip46Mod) {
+    try {
+      nip46Mod = await tryImport(cdnAlternatives.nip46);
+    } catch (e) {
+      console.warn('[loadTools] nip46 module not available (all candidates failed):', e);
+      nip46Mod = null;
+    }
+  }
+
   return { tools, poolMod, nip46Mod };
 }
 
@@ -118,6 +190,8 @@ export class NostrClient {
     this.fastProbeAt = Date.now();
     return this.fastRelay;
   }
+
+  
 
   // ---- Listen über Pool (robust, mit Timeout + API-Varianten)
   async listFromPool(relays, filter, timeoutMs = 3500) {
@@ -494,14 +568,19 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
     await this.initPool();
     await loadTools();
     const { evt } = this.toEventTemplate(data);
+    // Add delegation if available
+    const del = getDelegation();
+    if (del && del.tag) {
+      evt.tags.push(del.tag);
+    }
     const signed = await this.signer.signEvent(evt);
-
+  
     // publish zu allen Relays; robust gegenüber verschiedenen pool-APIs und
     // verhindert unhandled promise rejections, indem wir alle relevanten
     // Events (ok/failed/seen/error) abonnieren und Promise niemals ablehnen.
     let pubs = [];
     try { pubs = this.pool.publish ? this.pool.publish(Config.relays, signed) : []; } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
-
+  
     const makePubPromise = (p, timeout = 1200) => {
       if (!p) return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
       // Wenn p ein thenable ist (Promise)
@@ -541,7 +620,7 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       // Fallback: warte kurz
       return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
     };
-
+  
     try {
       if (Array.isArray(pubs) && pubs.length) {
         const pPromises = pubs.map(p => makePubPromise(p, 800));
@@ -555,7 +634,7 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
     } catch (e) {
       console.warn('publish wait error', e);
     }
-
+  
     return { signed };
   }
   // ---- Events holen (FAST-PATH → 1 Relay, kleines limit) + Fallback
@@ -626,3 +705,79 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
 }
 
 export const client = new NostrClient();
+
+export const Nostr = {
+  relays: [
+    'wss://relay.damus.io',
+    'wss://nostr.wine',
+    'wss://relayable.org',
+  ],
+  pool: null,
+  pubkey: null,
+  delegationTag: null,
+
+  async init() {
+    if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
+    const { SimplePool } = await import(poolUrl);
+    this.pool = new SimplePool()
+  },
+
+  async loginWithSSO(serverBase = 'http://localhost:8787') {
+    await this.init()
+    // 1) ask server for challenge
+    const s1 = await fetch(`${serverBase}/sso/start`, {
+      method: 'POST',
+      credentials: 'include',
+    }).then(r => r.json())
+
+    // 2) sign a small login-event (non-standard kind), carrying the nonce in content
+    const loginEvent = await window.nostr.signEvent({
+      kind: 27235, // arbitrary app-login kind
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [['t', 'login'], ['client', 'nostr-calendar-app']],
+      content: s1.nonce,
+    })
+
+    // 3) finish at server (verifies signature + nonce) -> session cookie
+    const s2 = await fetch(`${serverBase}/sso/finish`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event: loginEvent }),
+    }).then(r => r.json())
+
+    if (!s2.ok) throw new Error('Login fehlgeschlagen')
+    this.pubkey = s2.pubkey
+    return s2
+  },
+
+  async fetchDelegation({ serverBase = 'http://localhost:8787', kind, ttl = 3600 }) {
+    if (!kind) throw new Error('delegation: kind fehlt')
+    const res = await fetch(`${serverBase}/delegation?kind=${kind}&ttl=${ttl}`, {
+      credentials: 'include',
+    }).then(r => r.json())
+    if (!res.ok) throw new Error('delegation fehlgeschlagen')
+    this.delegationTag = res.tag // ['delegation', delegator, conditions, sig]
+    return res
+  },
+
+  async publish({ kind, content = '', tags = [] }) {
+    if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
+    const finalTags = Array.isArray(tags) ? [...tags] : []
+    if (this.delegationTag) finalTags.push(this.delegationTag)
+
+    const draft = {
+      kind,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: finalTags,
+      content,
+    }
+
+    // non-custodial signing by user
+    const signed = await window.nostr.signEvent(draft)
+
+    // publish to relays
+    await Promise.any(this.pool.publish(this.relays, signed))
+    return signed
+  },
+}

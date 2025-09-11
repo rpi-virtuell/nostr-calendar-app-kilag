@@ -34,6 +34,8 @@
       <button id="btn-ics-import" class="btn">ICS importieren</button>
       <button id="btn-ics-export" class="btn">ICS exportieren</button>
       <button id="btn-media" class="btn">Media</button>
+      <!-- SSO quick-action: ruft Server-SSO-Flow auf (Testserver; später WordPress SSO) -->
+      <button id="btn-sso" class="btn btn-ghost" title="SSO via Server (Platzhalter für WordPress SSO)">SSO (Server‑SSO)</button>
     </div>
 
     <!-- Auth: Dropdown menu (keeps legacy buttons hidden for compatibility) -->
@@ -42,9 +44,9 @@
       <div class="dropdown" style="position:relative;">
         <button id="btn-login-menu" class="btn" aria-haspopup="true" aria-expanded="false">Login ▾</button>
         <ul id="login-menu" class="dropdown-menu hidden" aria-label="Login Optionen" style="position:absolute; left:0; top:calc(100% + 6px); list-style:none; margin:0; padding:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.08); border-radius:6px; min-width:200px;">
-          <li><button id="login-menu-nostr" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Mit Nostr Key einloggen</button></li>
-          <li><button id="login-menu-extension" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Mit Extension (nos2x-fox) einloggen</button></li>
-          <li><button id="login-menu-bunker" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Bunker verbinden</button></li>
+          <li><button id="login-menu-nostr" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Manueller Key-Login (nsec)">Mit Nostr-Key einloggen</button></li>
+          <li><button id="login-menu-extension" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Browser-Extension (NIP-07), z.B. nos2x-fox">Mit Extension (nos2x-fox)</button></li>
+          <li><button id="login-menu-bunker" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Bunker/NIP-46 Signer verbinden">Bunker (NIP‑46) verbinden</button></li>
         </ul>
       </div>
 

@@ -47,6 +47,7 @@ function initEls() {
     btnManual: document.getElementById('btn-manual'),
     btnNip07: document.getElementById('btn-nip07'),
     btnLogout: document.getElementById('btn-logout'),
+    btnSso: document.getElementById('btn-sso'),
     // new dropdown/menu elements
     btnLoginMenu: document.getElementById('btn-login-menu'),
     loginMenu: document.getElementById('login-menu'),
@@ -280,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
   on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
   
   // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.btnSso, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
 
   // Determine the element that should trigger Bunker connection.
   // The legacy #btn-bunker may be removed from the DOM; prefer it if present,
@@ -481,15 +482,21 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
   if (els.btnLoginMenu && els.loginMenu) {
-    on(els.btnLoginMenu, 'click', () => {
+    // make handler async so we can await isLoggedIn()
+    on(els.btnLoginMenu, 'click', async () => {
       // Wenn bereits eingeloggt: Dropdown verbergen (soll nicht sichtbar sein)
-      if (typeof isLoggedIn === 'function' && isLoggedIn()) {
-        els.loginMenu.classList.add('hidden');
-        return;
+      try {
+        if (typeof isLoggedIn === 'function' && await isLoggedIn()) {
+          els.loginMenu.classList.add('hidden');
+          return;
+        }
+      } catch (e) {
+        // If isLoggedIn throws, fall through to toggle menu
+        console.debug('[App] isLoggedIn check failed:', e);
       }
       // Toggle visibility
       els.loginMenu.classList.toggle('hidden');
-
+ 
       // Position correction: stelle sicher, dass das Menü nicht aus dem Viewport rechts herausragt.
       try {
         els.loginMenu.style.left = ''; // reset
