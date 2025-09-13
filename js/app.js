@@ -12,7 +12,6 @@ import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami } from './a
 import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
-import { setupDelegationUI, isDelegationActive } from './delegation.js';
 import { wpSSO } from './wp-sso.js';
 
 const state = {
@@ -55,8 +54,7 @@ function initEls() {
     loginMenuNostr: document.getElementById('login-menu-nostr'),
     loginMenuExtension: document.getElementById('login-menu-extension'),
     loginMenuBunker: document.getElementById('login-menu-bunker'),
-    // delegation elements
-    delegationContainer: document.getElementById('delegation-container'),
+    // Theme and other elements
     themeSelect: document.getElementById('theme-select'),
     btnICSImport: document.getElementById('btn-ics-import'),
     btnICSExport: document.getElementById('btn-ics-export'),
@@ -419,23 +417,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Module Setup
   setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => {
     updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
-    updateDelegationVisibility();
   });
-
-  // Setup delegation UI
-  async function updateDelegationVisibility() {
-    if (await isLoggedIn()) {
-      els.delegationContainer.classList.remove('hidden');
-      setupDelegationUI(els.delegationContainer, (delegation) => {
-        console.log('[App] Delegation status changed:', delegation);
-      });
-    } else {
-      els.delegationContainer.classList.add('hidden');
-    }
-  }
-
-  // Initial delegation visibility check
-  updateDelegationVisibility();
 
   // Determine the element that should trigger Bunker connection.
   // The legacy #btn-bunker may be removed from the DOM; prefer it if present,
@@ -448,7 +430,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         await updateWhoami(els.whoami, res.method || 'nip46', res.pubkey);
       }
       updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
-      await updateDelegationVisibility(); // Update delegation UI after bunker login
     });
   } else {
     console.debug('[App] kein Bunker-Trigger im DOM gefunden; Bunker-Connect disabled');

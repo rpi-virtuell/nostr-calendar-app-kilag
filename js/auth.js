@@ -125,18 +125,6 @@ export async function isLoggedIn() {
   console.debug('[Auth] No WordPress SSO session found');
   return false;
   
-  // // Fallback: Session-Check via Server /me
-  // try {
-  //   const res = await fetch('http://localhost:8787/me', { credentials: 'include' });
-  //   console.debug('[Auth] Server /me response:', res.status);
-
-  //   const data = await res.json();
-  //   console.debug('[Auth] Server /me data:', data);
-  //   return data.ok && !!data.pubkey;
-  // } catch {
-  //   console.debug('[Auth] Server /me check failed');
-  //   return false;
-  // }
 }
 
 export async function login() {
@@ -223,12 +211,6 @@ export async function logout(els, whoami) {
     sessionStorage.removeItem('nostr_manual_nsec_plain'); 
   } catch (e) { /* ignore */ }
 
-  // Clear delegation
-  try {
-    const { clearDelegation } = await import('./nostr.js');
-    clearDelegation();
-  } catch (e) { /* ignore */ }
-
   // Update UI
   if (whoami) whoami.textContent = '';
   
@@ -247,12 +229,6 @@ export async function logout(els, whoami) {
     ensureVisible('btn-manual');
     ensureVisible('btn-nip07');
     ensureVisible('btn-login-menu');
-  } catch (e) { /* ignore */ }
-  
-  // Hide delegation container
-  try {
-    const delegationContainer = document.getElementById('delegation-container');
-    if (delegationContainer) delegationContainer.classList.add('hidden');
   } catch (e) { /* ignore */ }
 }
 

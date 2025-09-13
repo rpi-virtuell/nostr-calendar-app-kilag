@@ -1,63 +1,5 @@
 // js/nostr.js
 
-// NIP-26 Delegation System (2-step process)
-let delegationCtx = null;
-
-export async function prepareDelegation(kind = 31923, serverBase = 'http://localhost:8787') {
-  try {
-    const res = await fetch(`${serverBase}/delegation/prepare?kind=${kind}`, { 
-      credentials: 'include' 
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to prepare delegation');
-    
-    return data; // Contains delegationMessage, delegatorPubkey, etc.
-  } catch (e) {
-    console.error('[Delegation] Prepare failed:', e);
-    throw e;
-  }
-}
-
-export async function completeDelegation(signature, serverBase = 'http://localhost:8787') {
-  try {
-    const res = await fetch(`${serverBase}/delegation/complete`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signature })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to complete delegation');
-    
-    // Store delegation in context
-    delegationCtx = {
-      tag: data.delegation,
-      delegatorPubkey: data.delegation[1], // delegator pubkey
-      conditions: data.delegation[2],      // conditions
-      signature: data.delegation[3]        // signature
-    };
-    
-    return data;
-  } catch (e) {
-    console.error('[Delegation] Complete failed:', e);
-    throw e;
-  }
-}
-
-// Legacy function for backward compatibility - now uses new 2-step process
-export async function loadDelegation(kind = 31923) {
-  console.warn('[Delegation] loadDelegation is deprecated. Use prepareDelegation + completeDelegation instead.');
-  return delegationCtx;
-}
-
-export function getDelegation() { 
-  return delegationCtx; 
-}
-
-export function clearDelegation() {
-  delegationCtx = null;
-}
-
 // --- Pre-Capture of WP handoff params (runs at module import) ---  
 (() => {
   try {
@@ -612,11 +554,6 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
     await this.initPool();
     await loadTools();
     const { evt } = this.toEventTemplate(data);
-    // Add delegation if available
-    const del = getDelegation();
-    if (del && del.tag) {
-      evt.tags.push(del.tag);
-    }
     const signed = await this.signer.signEvent(evt);
   
     // publish zu allen Relays; robust gegenüber verschiedenen pool-APIs und
@@ -758,7 +695,6 @@ export const Nostr = {
   ],
   pool: null,
   pubkey: null,
-  delegationTag: null,
 
   async init() {
     if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
@@ -795,65 +731,9 @@ export const Nostr = {
     return s2
   },
 
-  async fetchDelegation({ serverBase = 'http://localhost:8787', kind = 31923 }) {
-    if (!kind) throw new Error('delegation: kind fehlt')
-    
-    try {
-      // Step 1: Prepare delegation
-      const prepareData = await prepareDelegation(kind, serverBase);
-      console.log('[Delegation] Please sign this message:', prepareData.delegationMessage);
-      
-      // Step 2: Sign delegation message - try different methods
-      if (!window.nostr) {
-        throw new Error('NIP-07 Extension nicht verfügbar. Bitte installieren Sie nos2x-fox oder ähnliche Extension.');
-      }
-      
-      let signature;
-      
-      // Method 1: Try signSchnorr (ideal for NIP-26)
-      if (typeof window.nostr.signSchnorr === 'function') {
-        console.log('[Delegation] Using signSchnorr for delegation...');
-        const messageBytes = new TextEncoder().encode(prepareData.delegationMessage);
-        signature = await window.nostr.signSchnorr(messageBytes);
-      } 
-      // Method 2: Fallback - use signEvent and extract signature
-      else {
-        console.log('[Delegation] signSchnorr not available, using signEvent fallback...');
-        const tempEvent = {
-          kind: 1,
-          content: prepareData.delegationMessage,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [['t', 'delegation-signature']],
-          pubkey: await window.nostr.getPublicKey()
-        };
-        const signedEvent = await window.nostr.signEvent(tempEvent);
-        signature = signedEvent.sig;
-      }
-      
-      if (!signature) {
-        throw new Error('Keine Signatur erhalten');
-      }
-      
-      console.log('[Delegation] Got signature:', signature);
-      
-      // Step 3: Complete delegation with the signature
-      const completeData = await completeDelegation(signature, serverBase);
-      
-      // Store delegation tag for future use
-      this.delegationTag = completeData.delegation;
-      console.log('[Delegation] Successfully created delegation:', this.delegationTag);
-      
-      return completeData;
-    } catch (e) {
-      console.error('[Delegation] Failed:', e);
-      throw e;
-    }
-  },
-
   async publish({ kind, content = '', tags = [] }) {
     if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
     const finalTags = Array.isArray(tags) ? [...tags] : []
-    if (this.delegationTag) finalTags.push(this.delegationTag)
 
     const draft = {
       kind,
