@@ -18,42 +18,107 @@
       <button id="btn-view-cards" class="btn btn-ghost">Grid Ansicht</button>
       <button id="btn-view-month" class="btn btn-ghost">Kalenderansicht</button>
     </div>
-    <div class="theme-switch">
-      <label for="theme-select" class="sr-only">Theme</label>
-      <select id="theme-select" aria-label="Theme wählen">
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="custom">Custom</option>
-      </select>
-    </div>
 
     <!-- Top-Actions (im Header) -->
     <div class="top-actions" style="display:flex; gap:8px; margin:0 12px;">
       <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
       <button id="btn-new" class="btn btn-primary" title="Neuen Termin anlegen">Neuer Termin</button>
-      <button id="btn-ics-import" class="btn">ICS importieren</button>
-      <button id="btn-ics-export" class="btn">ICS exportieren</button>
       <button id="btn-media" class="btn">Media</button>
     </div>
 
-    <!-- Auth: Dropdown menu (keeps legacy buttons hidden for compatibility) -->
+    <!-- Sidebar Toggle -->
     <div id="auth-box" class="auth-box">
-      <!-- Visible dropdown trigger -->
-      <div class="dropdown" style="position:relative;">
-        <button id="btn-login-menu" class="btn" aria-haspopup="true" aria-expanded="false">Login ▾</button>
-        <ul id="login-menu" class="dropdown-menu hidden" aria-label="Login Optionen" style="position:absolute; left:0; top:calc(100% + 6px); list-style:none; margin:0; padding:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.08); border-radius:6px; min-width:200px;">
-          <li><button id="login-menu-nostr" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Manueller Key-Login (nsec)">Mit Nostr-Key einloggen</button></li>
-          <li><button id="login-menu-extension" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Browser-Extension (NIP-07), z.B. nos2x-fox">Mit Extension (nos2x-fox)</button></li>
-          <li><button id="login-menu-bunker" class="btn btn-ghost" style="display:block; width:100%; text-align:left;" title="Bunker/NIP-46 Signer verbinden">Bunker (NIP‑46) verbinden</button></li>
-        </ul>
-      </div>
-
-      <!-- Legacy buttons removed; use dropdown menu (Bunker button remains visible for its UI) -->
-      <!-- <button id="btn-bunker" class="btn">Bunker verbinden</button> -->
+      <button id="sidebar-toggle" class="btn" title="Einstellungen & Login">
+        <span id="sidebar-icon">≡</span>
+      </button>
       <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
       <div id="whoami" class="whoami"></div>
     </div>
   </header>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar hidden">
+    <div class="sidebar-header">
+      <h3>Einstellungen</h3>
+      <button id="sidebar-close" class="btn btn-ghost">✕</button>
+    </div>
+    
+    <div class="sidebar-content">
+      <!-- Authentication Section -->
+      <section class="sidebar-section">
+        <h4>🔐 Authentifizierung</h4>
+        <div class="auth-options">
+          <button id="auth-nostr" class="sidebar-btn" data-auth="nostr">
+            <span class="auth-icon">🔑</span>
+            <div class="auth-details">
+              <div class="auth-title">Nostr Key</div>
+              <div class="auth-desc">Manueller nsec Login</div>
+            </div>
+          </button>
+          
+          <button id="auth-extension" class="sidebar-btn" data-auth="extension">
+            <span class="auth-icon">🦊</span>
+            <div class="auth-details">
+              <div class="auth-title">Browser Extension</div>
+              <div class="auth-desc">nos2x-fox, Alby, etc.</div>
+            </div>
+          </button>
+          
+          <button id="auth-bunker" class="sidebar-btn" data-auth="bunker">
+            <span class="auth-icon">🔗</span>
+            <div class="auth-details">
+              <div class="auth-title">Bunker (NIP-46)</div>
+              <div class="auth-desc">Remote Signer</div>
+            </div>
+          </button>
+          
+          <button id="auth-wordpress" class="sidebar-btn" data-auth="wordpress">
+            <span class="auth-icon">📝</span>
+            <div class="auth-details">
+              <div class="auth-title">WordPress SSO</div>
+              <div class="auth-desc">WordPress Integration</div>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- Settings Section -->
+      <section class="sidebar-section">
+        <h4>⚙️ Einstellungen</h4>
+        <div class="settings-group">
+          <label for="sidebar-theme-select">Theme:</label>
+          <select id="sidebar-theme-select" class="form-control">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Import/Export Section -->
+      <section class="sidebar-section">
+        <h4>📁 Import/Export</h4>
+        <div class="action-buttons">
+          <button id="sidebar-ics-import" class="sidebar-btn">
+            <span class="auth-icon">📥</span>
+            <div class="auth-details">
+              <div class="auth-title">ICS Import</div>
+            </div>
+          </button>
+          
+          <button id="sidebar-ics-export" class="sidebar-btn">
+            <span class="auth-icon">📤</span>
+            <div class="auth-details">
+              <div class="auth-title">ICS Export</div>
+            </div>
+          </button>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Sidebar Overlay -->
+  <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
 
     <!-- Nur noch die Filter in der Toolbar (wird in Monatsansicht versteckt) -->
   <section class="toolbar" id="toolbar">

@@ -8,8 +8,7 @@ import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
-import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami, setAuthManager } from './auth.js';
-import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl } from './bunker.js';
+import { setupBunkerEvents, initNip46FromUrl, connectBunker } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { wpSSO } from './wp-sso.js';
@@ -33,8 +32,6 @@ const state = {
 };
 
 let els = {};
-// Helper: element used to trigger Bunker connect (may be legacy btn or dropdown menu entry)
-let bunkerTrigger = null;
 let currentView = localStorage.getItem('view') || 'cards';
 let monthView;
 
@@ -54,21 +51,27 @@ function initEls() {
     btnCancelEvent: document.getElementById('btn-cancel-event'),
     btnDelete: document.getElementById('btn-delete'),
     whoami: document.getElementById('whoami'),
-    btnLogin: document.getElementById('btn-login'),
-    btnManual: document.getElementById('btn-manual'),
-    btnNip07: document.getElementById('btn-nip07'),
     btnLogout: document.getElementById('btn-logout'),
-    // new dropdown/menu elements
-    btnLoginMenu: document.getElementById('btn-login-menu'),
-    loginMenu: document.getElementById('login-menu'),
-    loginMenuNostr: document.getElementById('login-menu-nostr'),
-    loginMenuExtension: document.getElementById('login-menu-extension'),
-    loginMenuBunker: document.getElementById('login-menu-bunker'),
-    // Theme and other elements
-    themeSelect: document.getElementById('theme-select'),
-    btnICSImport: document.getElementById('btn-ics-import'),
-    btnICSExport: document.getElementById('btn-ics-export'),
-    btnBunker: document.getElementById('btn-bunker'),
+    
+    // New Sidebar Elements
+    sidebarToggle: document.getElementById('sidebar-toggle'),
+    sidebar: document.getElementById('sidebar'),
+    sidebarClose: document.getElementById('sidebar-close'),
+    sidebarOverlay: document.getElementById('sidebar-overlay'),
+    sidebarIcon: document.getElementById('sidebar-icon'),
+    
+    // Auth buttons in sidebar
+    authNostr: document.getElementById('auth-nostr'),
+    authExtension: document.getElementById('auth-extension'),
+    authBunker: document.getElementById('auth-bunker'),
+    authWordPress: document.getElementById('auth-wordpress'),
+    
+    // Settings in sidebar
+    sidebarThemeSelect: document.getElementById('sidebar-theme-select'),
+    sidebarIcsImport: document.getElementById('sidebar-ics-import'),
+    sidebarIcsExport: document.getElementById('sidebar-ics-export'),
+    
+    // Theme and other elements  
     monthGrid: document.getElementById('month-grid'),
     btnViewCards: document.getElementById('btn-view-cards'),
     btnViewMonth: document.getElementById('btn-view-month'),
@@ -96,37 +99,162 @@ function initEls() {
     filterRow: document.getElementById('filter-row'),
   };
 
-  // Kompatibilitäts-Glue: Falls die alten "legacy" Buttons (auf die bestehende
-  // Event-Handler in js/auth.js hören) nicht im DOM vorhanden sind, erzeugen
-  // wir sie versteckt zur Laufzeit und hängen sie in die auth-Box.
-  // So funktionieren sowohl die Dropdown-Menüs (die .click() auf diese IDs
-  // weiterleiten) als auch bestehende Tests ohne weitere Code-Anpassungen.
-  try {
-    const authBox = document.getElementById('auth-box') || document.body;
-    // Helper: create button only if missing
-    const ensureBtn = (id, text, hidden = true) => {
-      let el = document.getElementById(id);
-      if (!el) {
-        el = document.createElement('button');
-        el.id = id;
-        el.className = 'btn btn-ghost';
-        el.type = 'button';
-        el.style.display = hidden ? 'none' : '';
-        el.textContent = text;
-        authBox.appendChild(el);
-      }
-      return el;
-    };
+  // Create hidden buttons for ICS functionality (needed by setupICSImport/Export)
+  const createHiddenButton = (id) => {
+    let btn = document.getElementById(id);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = id;
+      btn.style.display = 'none';
+      document.body.appendChild(btn);
+    }
+    return btn;
+  };
+  
+  els.btnICSImport = createHiddenButton('btn-ics-import');
+  els.btnICSExport = createHiddenButton('btn-ics-export');
+  
+  // Create hidden theme selector (functionality moved to sidebar)
+  els.themeSelect = createHiddenButton('theme-select');
 
-    // Legacy IDs expected by auth.js
-    els.btnLogin = els.btnLogin || ensureBtn('btn-login', 'Login (legacy)');
-    els.btnManual = els.btnManual || ensureBtn('btn-manual', 'Manual Login (legacy)');
-    els.btnNip07 = els.btnNip07 || ensureBtn('btn-nip07', 'NIP-07 Login (legacy)');
-    // Erzeuge den legacy Bunker-Button ebenfalls versteckt, damit er die UI nicht stört.
-    els.btnBunker = els.btnBunker || ensureBtn('btn-bunker', 'Bunker (legacy)', true);
-  } catch (e) {
-    console.warn('[initEls] could not create legacy buttons:', e);
+  // Legacy buttons removed - using direct plugin architecture
+}
+
+// SIDEBAR
+function setupSidebar() {
+  const { sidebar, sidebarToggle, sidebarClose, sidebarOverlay, sidebarIcon } = els;
+  
+  const openSidebar = () => {
+    sidebar.classList.remove('hidden');
+    sidebarOverlay.classList.remove('hidden');
+    setTimeout(() => {
+      sidebar.classList.add('open');
+      sidebarOverlay.classList.add('open');
+    }, 10);
+  };
+  
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('open');
+    setTimeout(() => {
+      sidebar.classList.add('hidden');
+      sidebarOverlay.classList.add('hidden');
+    }, 300);
+  };
+  
+  // Toggle sidebar
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', openSidebar);
   }
+  
+  // Close sidebar
+  if (sidebarClose) {
+    sidebarClose.addEventListener('click', closeSidebar);
+  }
+  
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', closeSidebar);
+  }
+  
+  // Escape key closes sidebar
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebar && !sidebar.classList.contains('hidden')) {
+      closeSidebar();
+    }
+  });
+  
+  return { openSidebar, closeSidebar };
+}
+
+// AUTHENTICATION (Direct Plugin Calls)
+async function setupAuthButtons() {
+  const { authNostr, authExtension, authBunker, authWordPress } = els;
+  
+  // Update sidebar auth button states
+  const updateAuthButtons = async () => {
+    const activePlugin = await authManager.getActivePlugin();
+    const activeName = activePlugin?.name;
+    
+    // Update active state
+    [authNostr, authExtension, authBunker, authWordPress].forEach(btn => {
+      if (btn) btn.classList.remove('active');
+    });
+    
+    if (activeName === 'nostr' && authNostr) authNostr.classList.add('active');
+    if (activeName === 'wordpress' && authWordPress) authWordPress.classList.add('active');
+    
+    // Update sidebar toggle icon
+    if (els.sidebarIcon) {
+      els.sidebarIcon.textContent = activePlugin ? '👤' : '≡';
+    }
+  };
+  
+  // Nostr Key Login
+  if (authNostr) {
+    authNostr.addEventListener('click', async () => {
+      const nsec = prompt('Nostr Private Key (nsec) eingeben:');
+      if (!nsec) return;
+      
+      try {
+        const nostrPlugin = authManager.getPlugin('nostr');
+        if (nostrPlugin) {
+          await nostrPlugin.login({ method: 'manual', nsec });
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Nostr Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Nostr login failed:', error);
+        showNotification('Nostr Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  // Browser Extension Login
+  if (authExtension) {
+    authExtension.addEventListener('click', async () => {
+      try {
+        const nostrPlugin = authManager.getPlugin('nostr');
+        if (nostrPlugin) {
+          await nostrPlugin.login({ method: 'nip07' });
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Extension Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Extension login failed:', error);
+        showNotification('Extension Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  // Bunker Login
+  if (authBunker) {
+    authBunker.addEventListener('click', async () => {
+      try {
+        // Use existing bunker UI system
+        const res = await connectBunker('', { target: authBunker });
+        if (res && res.pubkey) {
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Bunker Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Bunker login failed:', error);
+        showNotification('Bunker Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  // WordPress SSO Login
+  if (authWordPress) {
+    authWordPress.addEventListener('click', () => {
+      // Redirect to WordPress SSO
+      window.location.href = 'http://localhost:8787/wp-login-redirect';
+    });
+  }
+  
+  return { updateAuthButtons };
 }
 
 // THEME
@@ -493,9 +621,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // MonthView initialisieren (vor View-Setup)
   monthView = new MonthView(els.monthGrid);
   
-  // Theme
+  // Theme (only sidebar theme selector now)
   applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
-  on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
   
   // WordPress SSO Check (before other auth setup)
   await checkWordPressSSO();
@@ -503,36 +630,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Auth Plugins
   await initializeAuthPlugins();
   
-  // Setup AuthManager UI
-  authManager.setupUI(els, () => {
+  // Setup New Sidebar System
+  const sidebarControls = setupSidebar();
+  const authControls = await setupAuthButtons();
+  
+  // Setup AuthManager UI (minimal - just whoami and logout)
+  authManager.setupUI({
+    whoami: els.whoami,
+    btnLogout: els.btnLogout,
+    btnNew: els.btnNew
+  }, async () => {
     console.log('[Auth] Auth state changed, updating UI...');
+    await authControls.updateAuthButtons();
   });
   
-  // Connect AuthManager to legacy auth functions
-  setAuthManager(authManager);
-  
-  // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => {
-    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami });
-  });
-
-  // Determine the element that should trigger Bunker connection.
-  // The legacy #btn-bunker may be removed from the DOM; prefer it if present,
-  // otherwise use the dropdown menu item (#login-menu-bunker) as the trigger.
-  bunkerTrigger = els.btnBunker || els.loginMenuBunker || null;
-
-  if (bunkerTrigger) {
-    setupBunkerUI(bunkerTrigger, async (res) => {
-      if (res && res.pubkey && els.whoami) {
-        await updateWhoami(els.whoami, res.method || 'nip46', res.pubkey);
-      }
-      updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami });
+  // Setup sidebar theme selector (only theme control now)
+  if (els.sidebarThemeSelect) {
+    els.sidebarThemeSelect.value = localStorage.getItem('calendar_theme') || Config.defaultTheme;
+    els.sidebarThemeSelect.addEventListener('change', () => {
+      applyTheme(els.sidebarThemeSelect.value);
     });
-  } else {
-    console.debug('[App] kein Bunker-Trigger im DOM gefunden; Bunker-Connect disabled');
   }
-
-  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami }));
+  
+  // Setup sidebar import/export buttons
+  if (els.sidebarIcsImport && els.btnICSImport) {
+    els.sidebarIcsImport.addEventListener('click', () => {
+      els.btnICSImport.click();
+      sidebarControls.closeSidebar();
+    });
+  }
+  
+  if (els.sidebarIcsExport && els.btnICSExport) {
+    els.sidebarIcsExport.addEventListener('click', () => {
+      els.btnICSExport.click();
+      sidebarControls.closeSidebar();
+    });
+  }
+  
+  // Initial auth button state update
+  await authControls.updateAuthButtons();
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,
@@ -739,104 +875,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   on(els.btnViewMonth, 'click', ()=> setView('month'));
   setView(localStorage.getItem('view') || 'cards');
 
-
-  // Auto-Reconnect
-  autoReconnectBunker(els.whoami, () => updateAuthUI({
-    btnNew: els.btnNew,
-    btnLogin: els.btnLogin,
-    btnLogout: els.btnLogout,
-    btnBunker: els.btnBunker,
-    btnManual: els.btnManual,
-    btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu,
-    whoami: els.whoami
-  }));
-  initNip46FromUrl(els.whoami, () => updateAuthUI({
-    btnNew: els.btnNew,
-    btnLogin: els.btnLogin,
-    btnLogout: els.btnLogout,
-    btnBunker: els.btnBunker,
-    btnManual: els.btnManual,
-    btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu,
-    whoami: els.whoami
-  }));
+  // Auto-Reconnect for Bunker (simplified)
+  setupBunkerEvents(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
   
-  // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
-  if (els.btnLoginMenu && els.loginMenu) {
-    // make handler async so we can await isLoggedIn()
-    on(els.btnLoginMenu, 'click', async () => {
-      // Wenn bereits eingeloggt: Dropdown verbergen (soll nicht sichtbar sein)
-      try {
-        if (await authManager.isLoggedIn()) {
-          els.loginMenu.classList.add('hidden');
-          return;
-        }
-      } catch (e) {
-        // If isLoggedIn throws, fall through to toggle menu
-        console.debug('[App] authManager.isLoggedIn check failed:', e);
-      }
-      // Toggle visibility
-      els.loginMenu.classList.toggle('hidden');
- 
-      // Position correction: stelle sicher, dass das Menü nicht aus dem Viewport rechts herausragt.
-      try {
-        els.loginMenu.style.left = ''; // reset
-        els.loginMenu.style.right = '';
-        const btnRect = els.btnLoginMenu.getBoundingClientRect();
-        const menuRect = els.loginMenu.getBoundingClientRect();
-        const viewportW = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-        // Default menu left is btn.left; wenn menu über den Rand hinausgeht, setze right:0 und linksunset.
-        if (btnRect.left + menuRect.width > viewportW - 8) { // 8px margin
-          els.loginMenu.style.left = 'auto';
-          // positioniere so, dass das Menü am rechten Rand des Viewports anliegt
-          els.loginMenu.style.right = '8px';
-        } else {
-          // sichere Positionierung nahe am Button (falls CSS verändert wurde)
-          els.loginMenu.style.left = `${btnRect.left}px`;
-          els.loginMenu.style.right = 'auto';
-        }
-      } catch (e) {
-        // ignore positioning errors
-      }
-    });
-    // Close menu when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!els.btnLoginMenu.contains(e.target) && !els.loginMenu.contains(e.target)) {
-        els.loginMenu.classList.add('hidden');
-      }
-    });
-    // Menu item handlers: trigger the (hidden) legacy buttons to preserve logic
-    // Use a dispatched MouseEvent first (better with hidden elements / frameworks)
-    const triggerClick = (btn) => {
-      try {
-        if (!btn) return;
-        const ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-        btn.dispatchEvent(ev);
-      } catch (e) {
-        try { btn?.click?.(); } catch {}
-      }
-    };
-
-    if (els.loginMenuNostr) on(els.loginMenuNostr, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnManual); });
-    if (els.loginMenuExtension) on(els.loginMenuExtension, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnNip07); });
-    if (els.loginMenuBunker) on(els.loginMenuBunker, 'click', () => {
-      els.loginMenu.classList.add('hidden');
-      // Avoid recursive clicks: only forward to a different trigger element.
-      if (bunkerTrigger && bunkerTrigger !== els.loginMenuBunker) {
-        try { triggerClick(bunkerTrigger); } catch(e){ console.warn('bunkerTrigger click failed', e); }
-      } else if (els.btnBunker) {
-        // Fallback to legacy button if present
-        try { triggerClick(els.btnBunker); } catch(e){ console.warn('btnBunker click failed', e); }
-      } else {
-        console.debug('[App] Kein separater Bunker-Trigger gefunden; Bunker connect nicht ausgeführt.');
-      }
-    });
-  }
+  initNip46FromUrl(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
 
   // Initial Setup
   setupMdToolbar();
-  // setupTagInput();
 
   refresh().catch(console.error);
 });

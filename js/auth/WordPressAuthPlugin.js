@@ -202,14 +202,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         btnNew.title = 'Neuen Termin anlegen';
       }
     } else {
-      // Show login elements, hide logout
-      if (btnLoginMenu) btnLoginMenu.style.display = 'inline-block';
-      if (btnLogout) btnLogout.style.display = 'none';
-      if (whoami) whoami.textContent = '';
-      if (btnNew) {
-        btnNew.disabled = true;
-        btnNew.title = 'Bitte zuerst einloggen';
-      }
+      // WordPress not active - don't interfere with other auth methods
+      // The NostrAuthPlugin should handle the login UI when WordPress SSO is not active
+      console.log('[WordPressAuth] Not logged in, letting other auth plugins handle UI');
     }
   }
 

@@ -211,7 +211,10 @@ export class AuthManager {
 
     if (whoami) whoami.textContent = '';
     if (btnLogout) btnLogout.style.display = 'none';
-    if (btnLoginMenu) btnLoginMenu.style.display = 'inline-block';
+    if (btnLoginMenu) {
+      btnLoginMenu.style.display = 'inline-block';
+      btnLoginMenu.classList.remove('hidden'); // Remove hidden class that overrides style
+    }
     if (btnLogin) btnLogin.style.display = 'inline-block';
     if (btnNew) {
       btnNew.disabled = true;

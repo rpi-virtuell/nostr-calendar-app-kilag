@@ -239,20 +239,8 @@ export class NostrAuthPlugin extends AuthPluginInterface {
       };
     }
 
-    // NIP-46 Bunker login
-    if (btnBunker) {
-      btnBunker.onclick = async () => {
-        const bunkerURI = prompt('Bunker Connect URI eingeben:');
-        if (!bunkerURI) return;
-        
-        try {
-          await this.login({ method: 'nip46', bunkerURI });
-          if (onChange) onChange();
-        } catch (error) {
-          alert('Bunker Login fehlgeschlagen: ' + error.message);
-        }
-      };
-    }
+    // NIP-46 Bunker login - handled by bunker.js setupBunkerUI()
+    // Removed onclick handler to avoid conflicts with bunker.js
   }
 
   async getPublicKey() {
