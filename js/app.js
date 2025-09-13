@@ -13,6 +13,7 @@ import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { setupDelegationUI, isDelegationActive } from './delegation.js';
+import { wpSSO } from './wp-sso.js';
 
 const state = {
   events: [],
@@ -48,7 +49,6 @@ function initEls() {
     btnManual: document.getElementById('btn-manual'),
     btnNip07: document.getElementById('btn-nip07'),
     btnLogout: document.getElementById('btn-logout'),
-    btnSso: document.getElementById('btn-sso'),
     // new dropdown/menu elements
     btnLoginMenu: document.getElementById('btn-login-menu'),
     loginMenu: document.getElementById('login-menu'),
@@ -145,12 +145,34 @@ function openModalForNew(){
   els.modal.showModal();
 }
 async function openModalForEdit(evt){
-  // check evt.pubkey against logged-in user
-  const userPubKey = await client.signer.getPublicKey();
-  if(evt.pubkey && client && client.signer && evt.pubkey !== userPubKey){
-    alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+  // Check if user is allowed to edit this event
+  try {
+    // For WordPress SSO users, check against WordPress identity
+    const wpStatus = await wpSSO.checkSSO();
+    if (wpStatus && wpSSO.isAuthenticated) {
+      // WordPress SSO: Events created by this identity can be edited
+      const wpIdentity = wpStatus.calendar_identity.pubkey;
+      if (evt.pubkey && evt.pubkey !== wpIdentity) {
+        alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+        return;
+      }
+    } else if (client && client.signer) {
+      // Normal Nostr authentication
+      const userPubKey = await client.signer.getPublicKey();
+      if (evt.pubkey && evt.pubkey !== userPubKey) {
+        alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+        return;
+      }
+    } else {
+      alert('Bearbeiten nicht möglich: Bitte zuerst einloggen.');
+      return;
+    }
+  } catch (error) {
+    console.error('Error checking edit permissions:', error);
+    alert('Fehler beim Überprüfen der Berechtigung.');
     return;
   }
+
   fillFormFromEvent(evt);
   els.btnCancelEvent.classList.remove('hidden');
   els.btnDelete.classList.remove('hidden');
@@ -267,13 +289,121 @@ async function refresh(){
     if (els.info) els.info.textContent = 'Fehler beim Laden.';
   }
   console.log(`[DEBUG] Loaded ${events.length} events`);
+  updateData(events);
+}
+
+// WordPress SSO Integration
+async function checkWordPressSSO() {
+  try {
+    console.log('[WP-SSO] Checking for WordPress SSO...');
+    
+    // Check URL parameters for wp_sso success
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('wp_sso') === 'success') {
+      console.log('[WP-SSO] Success parameter detected');
+      
+      // Show user notification
+      showWPSSONotification(urlParams.get('user'));
+      
+      // Clean URL
+      const url = new URL(window.location);
+      url.searchParams.delete('wp_sso');
+      url.searchParams.delete('user');
+      window.history.replaceState({}, '', url);
+    }
+    
+    // Check WordPress SSO status
+    const ssoStatus = await wpSSO.checkSSO();
+    if (ssoStatus) {
+      console.log('[WP-SSO] WordPress user authenticated:', ssoStatus.wp_user);
+      
+      // Update UI to show WordPress user ONLY if SSO is active
+      updateWPSSOAuthUI(ssoStatus);
+      
+      // Auto-refresh events
+      await refresh();
+      
+      return true;
+    } else {
+      console.log('[WP-SSO] No WordPress SSO session found');
+      return false;
+    }
+  } catch (error) {
+    console.error('[WP-SSO] Check failed:', error);
+    return false;
+  }
+}
+
+// Show WordPress SSO notification
+function showWPSSONotification(username) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed; top: 20px; right: 20px; z-index: 10000;
+    background: #4CAF50; color: white; padding: 15px 20px;
+    border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-family: system-ui, sans-serif; font-size: 14px;
+  `;
+  notification.innerHTML = `
+    ✅ <strong>WordPress SSO erfolgreich!</strong><br>
+    Angemeldet als: ${username || 'WordPress User'}
+  `;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  }, 5000);
+}
+
+// Update Auth UI for WordPress SSO
+function updateWPSSOAuthUI(ssoStatus) {
+  if (els.whoami) {
+    const wpUser = ssoStatus.wp_user;
+    const identity = ssoStatus.calendar_identity;
+    
+    els.whoami.innerHTML = `
+      <div style="text-align: left;">
+        <div><strong>📅 Calendar Identity:</strong> ${identity.name}</div>
+        <div style="font-size: 0.85em; color: #666;">WordPress User: ${wpUser.display_name || wpUser.username}</div>
+        <div style="font-size: 0.75em; color: #999;">${identity.pubkey.slice(0, 16)}...</div>
+      </div>
+    `;
+  }
+  
+  // Hide login buttons and dropdown, show logout
+  if (els.btnLoginMenu) els.btnLoginMenu.style.display = 'none';
+  if (els.btnLogin) els.btnLogin.style.display = 'none';
+  if (els.btnLogout) {
+    els.btnLogout.style.display = 'inline-block';
+    els.btnLogout.classList.remove('hidden');
+    // Replace logout handler for WordPress SSO
+    els.btnLogout.onclick = async () => {
+      console.log('[WP-SSO] Logging out via WordPress SSO...');
+      await wpSSO.logout();
+      // Refresh page to reset UI state
+      window.location.reload();
+    };
+  }
+  
+  // Show new event button and enable it
+  if (els.btnNew) {
+    els.btnNew.style.display = 'inline-block';
+    els.btnNew.disabled = false;
+    els.btnNew.title = 'Neuen Termin anlegen';
+  }
+}
+
+function updateData(events) {
   state.events = events;
   buildMonthOptions(els.monthSelect, events);
   applyFilters();
 }
 
 // DOM ready und Setup
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initEls();
   
   // MonthView initialisieren (vor View-Setup)
@@ -283,8 +413,11 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
   on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
   
+  // WordPress SSO Check (before other auth setup)
+  await checkWordPressSSO();
+  
   // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.btnSso, els.whoami, els.btnNew, () => {
+  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => {
     updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
     updateDelegationVisibility();
   });
@@ -356,12 +489,32 @@ document.addEventListener('DOMContentLoaded', () => {
   // CRUD Events
   window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
   on(els.btnNew, 'click', async ()=>{
-    if(!isLoggedIn()){
-      alert('Bitte zuerst einloggen (NIP-07 oder Bunker).');
+    const loggedIn = await isLoggedIn();
+    if (!loggedIn) {
+      alert('Bitte zuerst einloggen.');
       return;
     }
-    // isLoggedIn() ist true, signer existiert
-    const userPubKey = await client.signer.getPublicKey();
+    
+    // Check authentication type and validate accordingly
+    try {
+      const wpStatus = await wpSSO.checkSSO();
+      if (wpStatus && wpSSO.isAuthenticated) {
+        // WordPress SSO is active - no need to check client.signer
+        console.log('[WP-SSO] New event via WordPress SSO');
+      } else if (client && client.signer) {
+        // Normal Nostr authentication - validate signer
+        const userPubKey = await client.signer.getPublicKey();
+        console.log('[Nostr] New event via normal auth:', userPubKey);
+      } else {
+        alert('Authentifizierung nicht verfügbar.');
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      alert('Fehler bei der Authentifizierung.');
+      return;
+    }
+    
     openModalForNew();
   });
   on(els.btnRefresh, 'click', async ()=>{
@@ -384,12 +537,34 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     try{
-      const { signed, d } = await client.publish(data);
-      els.modal.close();
-      try {
+      // Check if WordPress SSO is active
+      const wpStatus = await wpSSO.checkSSO();
+      if (wpStatus && wpSSO.isAuthenticated) {
+        console.log('[WP-SSO] Creating event via WordPress SSO...');
+        
+        const eventData = {
+          title: data.title,
+          start: data.starts,
+          end: data.ends,
+          location: data.location || '',
+          description: data.description || '',
+          d: data.d || `wp-event-${Date.now()}`
+        };
+        
+        const result = await wpSSO.createCalendarEvent(eventData);
+        console.log('[WP-SSO] Event created:', result);
+        
+        els.modal.close();
         await refresh();
-      } catch (err) {
-        console.error('Refresh after save failed:', err);
+      } else {
+        // Normal Nostr client publishing
+        const { signed, d } = await client.publish(data);
+        els.modal.close();
+        try {
+          await refresh();
+        } catch (err) {
+          console.error('Refresh after save failed:', err);
+        }
       }
     }catch(err){
       console.error(err);
@@ -420,6 +595,17 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!confirm('Wirklich löschen? Dies entfernt den Termin dauerhaft aus Ihrem Kalender.')) return;
+
+    // Check if WordPress SSO is active
+    try {
+      const wpStatus = await wpSSO.checkSSO();
+      if (wpStatus && wpSSO.isAuthenticated) {
+        alert('Löschen über WordPress SSO wird noch nicht unterstützt. Verwenden Sie normale Nostr-Authentifizierung.');
+        return;
+      }
+    } catch (e) {
+      console.log('WordPress SSO check failed, continuing with normal delete');
+    }
 
     const evt = {
       kind: 5,

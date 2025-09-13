@@ -99,16 +99,44 @@ async function decryptWithPassword(password, payloadJson) {
 }
 
 export async function isLoggedIn() {
+  console.debug('[Auth] Checking login status...');
   // Prüfe zuerst lokalen Signer
   if (client && client.signer) return true;
-  // Fallback: Session-Check via Server /me
+  console.debug('[Auth] No local signer found');
+  
+  // Prüfe WordPress SSO
   try {
-    const res = await fetch('http://localhost:8787/me', { credentials: 'include' });
-    const data = await res.json();
-    return data.ok && !!data.pubkey;
-  } catch {
-    return false;
+    const wpSSORes = await fetch('http://localhost:8787/wp-sso-status', { credentials: 'include' });
+    console.debug('[Auth] WP-SSO status response:', wpSSORes.status);
+    if (wpSSORes.ok) {
+      const wpData = await wpSSORes.json();
+      console.debug('[Auth] WP-SSO data:', wpData);
+      // Prüfe ob WordPress SSO aktiv ist (ok: true und wp_user vorhanden)
+      if (wpData.ok && wpData.wp_user) {
+        console.debug('[Auth] WordPress SSO user found:', wpData.wp_user.username);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.debug('[Auth] WP-SSO status check failed:', e.message);
+    // WordPress SSO nicht verfügbar, weitermachen
   }
+
+  console.debug('[Auth] No WordPress SSO session found');
+  return false;
+  
+  // // Fallback: Session-Check via Server /me
+  // try {
+  //   const res = await fetch('http://localhost:8787/me', { credentials: 'include' });
+  //   console.debug('[Auth] Server /me response:', res.status);
+
+  //   const data = await res.json();
+  //   console.debug('[Auth] Server /me data:', data);
+  //   return data.ok && !!data.pubkey;
+  // } catch {
+  //   console.debug('[Auth] Server /me check failed');
+  //   return false;
+  // }
 }
 
 export async function login() {
@@ -159,7 +187,6 @@ export async function updateAuthUI(els) {
     if (els.btnLogin) els.btnLogin.classList.add('hidden');
     if (els.btnManual) els.btnManual.classList.add('hidden');
     if (els.btnNip07) els.btnNip07.classList.add('hidden');
-    if (els.btnSso) els.btnSso.classList.add('hidden');
     if (els.btnLoginMenu) els.btnLoginMenu.classList.add('hidden'); // Dropdown ausblenden wenn eingeloggt
   } else {
     if (els.btnBunker) els.btnBunker.classList.remove('hidden');
@@ -167,13 +194,22 @@ export async function updateAuthUI(els) {
     if (els.btnLogin) els.btnLogin.classList.remove('hidden');
     if (els.btnManual) els.btnManual.classList.remove('hidden');
     if (els.btnNip07) els.btnNip07.classList.remove('hidden');
-    if (els.btnSso) els.btnSso.classList.remove('hidden');
     if (els.btnLoginMenu) els.btnLoginMenu.classList.remove('hidden'); // Dropdown sichtbar wenn nicht eingeloggt
   }
 }
 
 export async function logout(els, whoami) {
   await client.logout();
+  
+  // Clear WordPress SSO if active
+  try {
+    await fetch('http://localhost:8787/wp-logout', { 
+      method: 'POST', 
+      credentials: 'include' 
+    });
+  } catch (e) {
+    console.log('[AUTH] WordPress SSO logout not available:', e.message);
+  }
   
   // Clear all stored data
   localStorage.removeItem('nostr_sk_hex');
@@ -211,7 +247,6 @@ export async function logout(els, whoami) {
     ensureVisible('btn-manual');
     ensureVisible('btn-nip07');
     ensureVisible('btn-login-menu');
-    ensureVisible('btn-sso');
   } catch (e) { /* ignore */ }
   
   // Hide delegation container
@@ -236,35 +271,14 @@ export async function updateWhoami(whoami, method, pubkey) {
   }
 }
 
-export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, btnSso, whoami, btnNew, onUpdate) {
-  // SSO Login Handler (neue Option)
-  on(btnSso, 'click', async () => {
-    if (await isLoggedIn()) return;
-    try {
-      // Einfacher visueller Feedback-Flow: Button deaktivieren, then run ssoLogin
-      btnSso.disabled = true;
-      btnSso.textContent = 'SSO…';
-      const res = await ssoLogin();
-      // Nach erfolgreichem Login: Delegation holen (falls nicht bereits)
-      await updateWhoami(whoami, res.method, res.pubkey);
-      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
-      if (onUpdate) onUpdate();
-      // Optional: zeige Success kurz an
-      btnSso.textContent = 'Erfolgreich';
-      setTimeout(()=>{ btnSso.textContent = 'SSO Login'; btnSso.disabled = false; }, 1200);
-    } catch (err) {
-      console.error('SSO Login fehlgeschlagen:', err);
-      alert('Fehler beim SSO Login: ' + (err && err.message));
-      btnSso.disabled = false;
-      btnSso.textContent = 'SSO Login';
-    }
-  });
+export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07, whoami, btnNew, onUpdate) {
+  // Entfernt: btnSso Parameter und zugehörige SSO-Handler
 
   on(btnLogin, 'click', async () => {
     try {
       const res = await login();
       await updateWhoami(whoami, res.method, res.pubkey);
-      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
+      updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('Login fehlgeschlagen:', err);
@@ -304,7 +318,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         }
       } catch (e) { /* ignore */ }
   
-      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
+      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('Manueller Login fehlgeschlagen:', err);
@@ -321,7 +335,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         return;
       }
       await updateWhoami(whoami, res.method, res.pubkey);
-      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
+      await updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error('NIP-07 Login fehlgeschlagen:', err);
@@ -342,14 +356,14 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
     }
     
     // Then clear local data
-    logout({ btnNew, btnLogin, btnLogout, btnBunker, btnSso }, whoami);
+    logout({ btnNew, btnLogin, btnLogout, btnBunker }, whoami);
     
     // Trigger update callback
     if (onUpdate) onUpdate();
   });
 
   // Initial UI-Update (async)
-  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnManual, btnNip07, btnSso });
+  updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnManual, btnNip07 });
 
   // Auto-Login: Wenn ein manueller nsec-Key per Cookie/localStorage vorhanden ist,
   // versuchen wir den Login erst nach einer User-Geste (z.B. Klick).
@@ -364,7 +378,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         client.loginWithNsec(sess).then(res => {
           if (res && whoami) {
             updateWhoami(whoami, 'manual-session', res.pubkey).then(() => {
-              updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso }).then(() => {
+              updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker }).then(() => {
                 if (onUpdate) onUpdate();
               });
             });
@@ -404,7 +418,7 @@ export function setupAuthUI(btnLogin, btnLogout, btnBunker, btnManual, btnNip07,
         if (res && whoami) {
           console.debug('[auth] auto manual login succeeded pubkey=', res.pubkey);
           await updateWhoami(whoami, 'manual-auto', res.pubkey);
-          updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker, btnSso });
+          updateAuthUI({ btnNew, btnLogin, btnLogout, btnBunker });
           if (onUpdate) onUpdate();
         }
       } catch (e) {

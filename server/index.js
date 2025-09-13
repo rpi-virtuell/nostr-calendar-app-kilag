@@ -55,9 +55,12 @@ app.use(cookieSession({
 // Demo delegation key pair (Johan Amos Comenius)
 const delegatorSkHex = 'b66d1dddbb1a50a5e8f0c4b24f1e26ed982d0654b5b70afbb1c6b0cdf84d8730'
 const delegatorSk = hexToBytes(delegatorSkHex)
-const delegatorPkHex = bytesToHex(secp.getPublicKey(delegatorSk))
+// Get the full public key and extract only the x-coordinate (remove the 02 prefix)
+const fullPubkey = secp.getPublicKey(delegatorSk)
+const delegatorPkHex = bytesToHex(fullPubkey.slice(1)) // Remove first byte (02 prefix)
 
 console.log('delegatorSk type:', typeof delegatorSk, 'length:', delegatorSk.length, 'instanceof Uint8Array:', delegatorSk instanceof Uint8Array)
+console.log('delegatorPkHex length:', delegatorPkHex.length, 'value:', delegatorPkHex)
 
 // ============ SSO Bunker Endpoints ============
 
@@ -127,6 +130,131 @@ app.post('/logout', (req, res) => {
   }
 })
 
+// ============ WordPress SSO Integration ============
+
+// Shared secret for token verification (must match WordPress plugin)
+const WP_SHARED_SECRET = 'your-secure-shared-secret-key-here';
+
+// WordPress SSO endpoint - validates tokens and creates sessions
+app.get('/wp-sso', async (req, res) => {
+  try {
+    const { token } = req.query;
+    
+    if (!token) {
+      return res.status(400).json({ ok: false, error: 'token_required' });
+    }
+    
+    // Verify WordPress token
+    const wpUser = verifyWordPressToken(token);
+    if (!wpUser) {
+      return res.status(401).json({ ok: false, error: 'invalid_token' });
+    }
+    
+    // Create session for WordPress user
+    req.session.wp_user = {
+      id: wpUser.wp_user_id,
+      username: wpUser.wp_username,
+      email: wpUser.wp_email,
+      display_name: wpUser.wp_display_name,
+      roles: wpUser.wp_roles,
+      wp_site_url: wpUser.wp_site_url,
+      authenticated_at: new Date().toISOString(),
+      source: 'wordpress_sso'
+    };
+    
+    console.log(`[WP-SSO] WordPress user authenticated via SSO: ${wpUser.wp_username} from ${wpUser.wp_site_url}`);
+    
+    // Redirect to calendar app with success status
+    const calendarUrl = `/index.html?wp_sso=success&user=${encodeURIComponent(wpUser.wp_username)}`;
+    res.redirect(calendarUrl);
+    
+  } catch (e) {
+    console.error('[WP-SSO] failed:', e);
+    return res.status(500).json({ ok: false, error: 'sso_failed', reason: String(e) });
+  }
+});
+
+// WordPress token verification function
+function verifyWordPressToken(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+    
+    const [tokenData, signature] = parts;
+    
+    // Für Demo: Akzeptiere Mock-Signaturen (beginnen mit "demo_signature_")
+    if (signature.startsWith('demo_signature_')) {
+      console.log('[WP-SSO] Demo token detected, skipping signature verification');
+      
+      // Decode payload
+      const payload = JSON.parse(Buffer.from(tokenData, 'base64').toString());
+      
+      // Check expiration
+      if (Date.now() / 1000 > payload.expires) {
+        console.log('[WP-SSO] Token expired');
+        return null;
+      }
+      
+      return payload;
+    }
+    
+    // Produktions-Token: Verify signature
+    const expectedSignature = crypto.createHmac('sha256', WP_SHARED_SECRET)
+                                   .update(tokenData)
+                                   .digest('hex');
+    
+    if (expectedSignature !== signature) {
+      console.log('[WP-SSO] Invalid token signature');
+      return null;
+    }
+    
+    // Decode payload
+    const payload = JSON.parse(Buffer.from(tokenData, 'base64').toString());
+    
+    // Check expiration
+    if (Date.now() / 1000 > payload.expires) {
+      console.log('[WP-SSO] Token expired');
+      return null;
+    }
+    
+    return payload;
+    
+  } catch (error) {
+    console.error('[WP-SSO] Token verification failed:', error);
+    return null;
+  }
+}
+
+// WordPress logout endpoint
+app.post('/wp-logout', (req, res) => {
+  if (req.session?.wp_user) {
+    const username = req.session.wp_user.username;
+    req.session = null; // Clear session
+    res.clearCookie('session');
+    res.clearCookie('session.sig');
+    console.log(`[WP-SSO] WordPress user logged out: ${username}`);
+  }
+  
+  res.json({ ok: true, message: 'WordPress SSO logout successful' });
+});
+
+// Check WordPress SSO status
+app.get('/wp-sso-status', (req, res) => {
+  if (!req.session?.wp_user) {
+    return res.status(401).json({ ok: false, error: 'not_authenticated' });
+  }
+  
+  res.json({ 
+    ok: true, 
+    wp_user: req.session.wp_user,
+    calendar_identity: {
+      pubkey: delegatorPkHex,
+      name: 'Johan Amos Comenius'
+    },
+    source: 'wordpress_sso'
+  });
+});
+
 // ============ WordPress Authentication ============
 
 // WordPress user authentication (simulated)
@@ -189,6 +317,53 @@ app.get('/wp-me', (req, res) => {
   });
 });
 
+// ============ Test Endpoint for Publishing ============
+
+app.post('/test-publish', async (req, res) => {
+  console.log('[TEST-PUBLISH] Testing event creation and publishing...');
+  
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    
+    // Create test event
+    const eventTemplate = {
+      kind: 31923,
+      created_at: now,
+      pubkey: delegatorPkHex,
+      tags: [
+        ['title', 'Test Real Publishing'],
+        ['starts', String(now + 3600)], // 1 hour from now
+        ['ends', String(now + 7200)], // 2 hours from now
+        ['location', 'Test Location'],
+        ['d', `test-${now}-${Math.random().toString(36).substr(2, 9)}`],
+        ['client', 'test-publishing'],
+        ['test', 'true']
+      ],
+      content: 'This is a test event to verify real publishing works'
+    };
+    
+    console.log(`[TEST-PUBLISH] Event template:`, JSON.stringify(eventTemplate, null, 2));
+    
+    // Sign with Johan's private key
+    const signedEvent = finalizeEvent(eventTemplate, delegatorSkHex);
+    console.log(`[TEST-PUBLISH] Signed event ID: ${signedEvent.id}`);
+    
+    // Publish to relays
+    const relayResults = await publishToRelays(signedEvent);
+    
+    res.json({
+      ok: true,
+      event: signedEvent,
+      relay_results: relayResults,
+      message: 'Test event published'
+    });
+    
+  } catch (e) {
+    console.error('[TEST-PUBLISH] failed:', e);
+    return res.status(500).json({ ok: false, error: 'test_publish_failed', reason: String(e) });
+  }
+});
+
 // ============ WordPress Calendar Event Creation ============
 
 app.post('/wp-calendar/event', async (req, res) => {
@@ -205,6 +380,28 @@ app.post('/wp-calendar/event', async (req, res) => {
   try {
     const now = Math.floor(Date.now() / 1000);
     
+    // Convert start/end to Unix timestamps if they're not already
+    let startTimestamp = start;
+    let endTimestamp = end;
+    
+    // If start/end are ISO strings, convert to Unix timestamps
+    if (typeof start === 'string' && start.includes('T')) {
+      startTimestamp = Math.floor(new Date(start).getTime() / 1000);
+    } else if (typeof start === 'string') {
+      // Assume YYYY-MM-DDTHH:mm format from HTML datetime-local input
+      startTimestamp = Math.floor(new Date(start).getTime() / 1000);
+    }
+    
+    if (end) {
+      if (typeof end === 'string' && end.includes('T')) {
+        endTimestamp = Math.floor(new Date(end).getTime() / 1000);
+      } else if (typeof end === 'string') {
+        endTimestamp = Math.floor(new Date(end).getTime() / 1000);
+      }
+    }
+    
+    console.log(`[WP-CALENDAR] Converting times - start: ${start} -> ${startTimestamp}, end: ${end} -> ${endTimestamp}`);
+    
     // Create calendar event (NIP-52, kind 31923)
     const eventTemplate = {
       kind: 31923,
@@ -212,8 +409,8 @@ app.post('/wp-calendar/event', async (req, res) => {
       pubkey: delegatorPkHex, // Johan's pubkey
       tags: [
         ['title', title],
-        ['start', start],
-        ...(end ? [['end', end]] : []),
+        ['starts', String(startTimestamp)], // NIP-52 uses 'starts', not 'start'
+        ...(endTimestamp ? [['ends', String(endTimestamp)]] : []), // NIP-52 uses 'ends', not 'end'
         ...(location ? [['location', location]] : []),
         ...(description ? [['description', description]] : []),
         ['d', d || `wp-event-${now}-${Math.random().toString(36).substr(2, 9)}`],
@@ -223,6 +420,8 @@ app.post('/wp-calendar/event', async (req, res) => {
       ],
       content: description || ''
     };
+    
+    console.log(`[WP-CALENDAR] Event template:`, JSON.stringify(eventTemplate, null, 2));
     
     // Sign with Johan's private key using nostr-tools
     const signedEvent = finalizeEvent(eventTemplate, delegatorSkHex);
@@ -413,36 +612,98 @@ app.post('/calendar/event', async (req, res) => {
 // ============ Publishing ============
 
 async function publishToRelays(event) {
+  console.log('[RELAY] Starting to publish event:', event.id);
+  
+  // Use the same relays as the client app
   const relays = [
-    'wss://relay.damus.io',
-    'wss://nos.lol',
-    'wss://relay.nostr.band'
+    'wss://relilab.nostr1.com',
+    'wss://relay-rpi.edufeed.org'
   ];
   
   const results = [];
   
   for (const relayUrl of relays) {
+    console.log(`[RELAY] Attempting to connect to ${relayUrl}...`);
     try {
-      // In a real implementation, you would connect to WebSocket and send
-      // For demo purposes, we'll just simulate the result
-      results.push({
-        relay: relayUrl,
-        success: true,
-        message: 'Published successfully (simulated)'
+      const WebSocket = (await import('ws')).default;
+      
+      await new Promise((resolve, reject) => {
+        const ws = new WebSocket(relayUrl);
+        const timeout = setTimeout(() => {
+          console.log(`[RELAY] Timeout connecting to ${relayUrl}`);
+          ws.close();
+          reject(new Error('Connection timeout'));
+        }, 10000);
+        
+        ws.on('open', () => {
+          console.log(`[RELAY] Connected to ${relayUrl}, sending event...`);
+          clearTimeout(timeout);
+          // Send EVENT message according to NIP-01
+          const eventMessage = ['EVENT', event];
+          ws.send(JSON.stringify(eventMessage));
+          console.log(`[RELAY] Sent EVENT message to ${relayUrl}:`, JSON.stringify(eventMessage).substring(0, 200) + '...');
+        });
+        
+        ws.on('message', (data) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            console.log(`[RELAY] Received from ${relayUrl}:`, msg);
+            
+            if (msg[0] === 'OK' && msg[1] === event.id) {
+              if (msg[2] === true) {
+                console.log(`[RELAY] ✅ Published to ${relayUrl}: ${event.id}`);
+                results.push({
+                  relay: relayUrl,
+                  success: true,
+                  message: 'Published successfully'
+                });
+              } else {
+                console.error(`[RELAY] ❌ Rejected by ${relayUrl}: ${msg[3]}`);
+                results.push({
+                  relay: relayUrl,
+                  success: false,
+                  error: msg[3] || 'Event rejected'
+                });
+              }
+              ws.close();
+              resolve();
+            }
+          } catch (e) {
+            console.error(`[RELAY] Error parsing response from ${relayUrl}:`, e);
+            ws.close();
+            reject(e);
+          }
+        });
+        
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error(`[RELAY] ❌ Failed to connect to ${relayUrl}:`, error.message);
+          results.push({
+            relay: relayUrl,
+            success: false,
+            error: error.message
+          });
+          reject(error);
+        });
+        
+        ws.on('close', () => {
+          console.log(`[RELAY] Connection to ${relayUrl} closed`);
+          clearTimeout(timeout);
+          resolve();
+        });
       });
       
-      console.log(`[RELAY] Published to ${relayUrl}:`, event.id);
     } catch (error) {
+      console.error(`[RELAY] ❌ Exception publishing to ${relayUrl}:`, error.message);
       results.push({
         relay: relayUrl,
         success: false,
         error: error.message
       });
-      
-      console.error(`[RELAY] Failed to publish to ${relayUrl}:`, error);
     }
   }
   
+  console.log('[RELAY] Publishing completed, results:', results);
   return results;
 }
 
