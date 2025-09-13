@@ -119,6 +119,55 @@ export class NostrAuthPlugin extends AuthPluginInterface {
     return await this.client.publish(eventData);
   }
 
+  async deleteEvent(eventId) {
+    if (!await this.isLoggedIn()) {
+      throw new Error('Not logged in to Nostr');
+    }
+
+    console.log('[NostrAuth] Deleting event via Nostr client:', eventId);
+    
+    const deleteEventData = {
+      kind: 5,
+      content: '',
+      tags: [['e', eventId]],
+      created_at: Math.floor(Date.now() / 1000)
+    };
+
+    if (!this.client.signer) {
+      throw new Error('No signer available');
+    }
+
+    await this.client.initPool();
+    const signed = await this.client.signer.signEvent(deleteEventData);
+
+    // Publish delete event to relays
+    const { Config } = await import('../config.js');
+    const pubs = this.client.pool.publish(Config.relays, signed);
+    
+    if (Array.isArray(pubs)) {
+      const timeout = 3000;
+      const promises = pubs.map(pub => {
+        if (!pub || typeof pub.on !== 'function') return Promise.resolve();
+        return new Promise(resolve => {
+          const timer = setTimeout(() => resolve(), timeout);
+          const onOk = () => { clearTimeout(timer); resolve(true); };
+          const onFailed = () => { clearTimeout(timer); resolve(false); };
+          try {
+            pub.on('ok', onOk);
+            pub.on('failed', onFailed);
+          } catch (e) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+      await Promise.race(promises);
+      await Promise.allSettled(promises);
+    }
+
+    return { signed };
+  }
+
   updateAuthUI(elements) {
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = elements;
     

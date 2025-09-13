@@ -352,6 +352,42 @@ async function checkWordPressSSO() {
   }
 }
 
+// Show general notification
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  const colors = {
+    success: '#4CAF50',
+    error: '#f44336', 
+    warning: '#ff9800',
+    info: '#2196F3'
+  };
+  
+  notification.style.cssText = `
+    position: fixed; top: 20px; right: 20px; z-index: 10000;
+    background: ${colors[type] || colors.info}; color: white; padding: 15px 20px;
+    border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-family: system-ui, sans-serif; font-size: 14px;
+  `;
+  
+  const icons = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  };
+  
+  notification.innerHTML = `${icons[type] || icons.info} ${message}`;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  }, 5000);
+}
+
 // Show WordPress SSO notification
 function showWPSSONotification(username) {
   const notification = document.createElement('div');
@@ -617,17 +653,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (!confirm('Wirklich löschen? Dies entfernt den Termin dauerhaft aus Ihrem Kalender.')) return;
 
-    // Check if WordPress SSO is active
     try {
-      const wpStatus = await wpSSO.checkSSO();
-      if (wpStatus && wpSSO.isAuthenticated) {
-        alert('Löschen über WordPress SSO wird noch nicht unterstützt. Verwenden Sie normale Nostr-Authentifizierung.');
-        return;
+      // Use AuthManager to delete event through the active auth plugin
+      if (authManager) {
+        const result = await authManager.deleteEvent(id);
+        if (result.success) {
+          els.modal.close();
+          try {
+            await refresh();
+            showNotification('Event erfolgreich gelöscht', 'success');
+          } catch (err) {
+            console.error('Refresh after delete failed:', err);
+            showNotification('Event gelöscht, aber Aktualisierung fehlgeschlagen', 'warning');
+          }
+          return;
+        } else {
+          throw new Error(result.error || 'Delete failed through AuthManager');
+        }
       }
     } catch (e) {
-      console.log('WordPress SSO check failed, continuing with normal delete');
+      console.warn('AuthManager delete failed, falling back to direct Nostr client:', e);
+      // Don't show error notification here, let the fallback try first
     }
 
+    // Fallback to direct Nostr client delete
     const evt = {
       kind: 5,
       content: '',
@@ -665,13 +714,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       els.modal.close();
       try {
         await refresh();
+        showNotification('Event erfolgreich gelöscht', 'success');
       } catch (err) {
         console.error('Refresh after delete failed:', err);
+        showNotification('Event gelöscht, aber Aktualisierung fehlgeschlagen', 'warning');
       }
       // alert('Termin gelöscht.');
     } catch (err) {
       console.error(err);
-      alert('Löschen fehlgeschlagen: ' + (err.message || err));
+      showNotification('Löschen fehlgeschlagen: ' + (err.message || err), 'error');
     }
   });
 

@@ -116,6 +116,24 @@ export class AuthManager {
   }
 
   /**
+   * Delete an event using the active auth plugin
+   */
+  async deleteEvent(eventId) {
+    const plugin = await this.getActivePlugin();
+    if (!plugin) {
+      return { success: false, error: 'No authentication plugin active' };
+    }
+
+    try {
+      const result = await plugin.deleteEvent(eventId);
+      return { success: true, result };
+    } catch (error) {
+      console.error(`[AuthManager] Delete event failed:`, error);
+      return { success: false, error: error.message || 'Delete failed' };
+    }
+  }
+
+  /**
    * Logout from current auth plugin
    */
   async logout() {

@@ -65,6 +65,15 @@ export class AuthPluginInterface {
   }
 
   /**
+   * Delete a calendar event using this auth method
+   * @param {string} eventId - ID of the event to delete
+   * @returns {Promise<Object>} Delete result
+   */
+  async deleteEvent(eventId) {
+    throw new Error('deleteEvent() must be implemented by auth plugin');
+  }
+
+  /**
    * Update UI elements for this auth plugin
    * @param {Object} elements - UI elements to update
    */

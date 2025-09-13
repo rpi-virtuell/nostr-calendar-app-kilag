@@ -449,6 +449,66 @@ app.post('/wp-calendar/event', async (req, res) => {
   }
 });
 
+// ============ WordPress Calendar Event Deletion ============
+
+app.delete('/wp-calendar/event/:eventId', async (req, res) => {
+  // Check WordPress authentication
+  if (!req.session?.wp_user) {
+    return res.status(401).json({ ok: false, error: 'wp_auth_required' });
+  }
+  
+  const { eventId } = req.params;
+  if (!eventId) {
+    return res.status(400).json({ ok: false, error: 'event_id_required' });
+  }
+  
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    
+    console.log(`[WP-CALENDAR] Deleting event ${eventId} by ${req.session.wp_user.username}`);
+    
+    // Create delete event (NIP-09, kind 5)
+    const deleteEvent = {
+      kind: 5,
+      created_at: now,
+      pubkey: delegatorPkHex, // Johan's pubkey
+      tags: [
+        ['e', eventId], // Reference to event being deleted
+        ['client', 'wordpress-calendar'],
+        ['wp_user', req.session.wp_user.username], // Track which WP user deleted it
+        ['wp_user_id', String(req.session.wp_user.id)]
+      ],
+      content: 'Event deleted via WordPress Calendar'
+    };
+    
+    console.log(`[WP-CALENDAR] Delete event template:`, JSON.stringify(deleteEvent, null, 2));
+    
+    // Sign with Johan's private key using nostr-tools
+    const signedEvent = finalizeEvent(deleteEvent, delegatorSkHex);
+
+    // Publish to relays
+    const relayResults = await publishToRelays(signedEvent);
+
+    console.log(`[WP-CALENDAR] Event ${eventId} deleted by ${req.session.wp_user.username}`);
+
+    res.json({
+      ok: true,
+      delete_event: signedEvent,
+      message: `Event deleted as Johan Amos Comenius`,
+      deleted_by: req.session.wp_user.username,
+      relay_results: relayResults,
+      calendar_identity: {
+        name: 'Johan Amos Comenius',
+        pubkey: delegatorPkHex
+      }
+    });
+    
+  } catch (e) {
+    console.error('[WP-CALENDAR] event deletion failed:', e);
+    return res.status(500).json({ ok: false, error: 'event_deletion_failed', reason: String(e) });
+  }
+});
+
 // ============ Legacy Delegation Endpoints ============
 
 // Step 1: Prepare delegation for client to sign

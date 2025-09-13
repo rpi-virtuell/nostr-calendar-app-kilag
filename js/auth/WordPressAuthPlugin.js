@@ -147,6 +147,30 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     return result;
   }
 
+  async deleteEvent(eventId) {
+    if (!await this.isLoggedIn()) {
+      throw new Error('Not logged in to WordPress SSO');
+    }
+
+    console.log('[WordPressAuth] Deleting event via WordPress SSO:', eventId);
+    
+    const response = await fetch(`${this.serverBase}/wp-calendar/event/${eventId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || 'Event deletion failed');
+    }
+
+    return result;
+  }
+
   updateAuthUI(elements) {
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = elements;
     
