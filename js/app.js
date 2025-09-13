@@ -8,11 +8,21 @@ import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
-import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami } from './auth.js';
+import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami, setAuthManager } from './auth.js';
 import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { wpSSO } from './wp-sso.js';
+
+// New Plugin-based Authentication System
+import { AuthManager } from './auth/AuthManager.js';
+import { authRegistry } from './auth/AuthPluginInterface.js';
+import { NostrAuthPlugin } from './auth/NostrAuthPlugin.js';
+import { WordPressAuthPlugin } from './auth/WordPressAuthPlugin.js';
+
+// Initialize Auth Manager
+const authManager = new AuthManager();
+window.authManager = authManager; // Debug access
 
 const state = {
   events: [],
@@ -191,7 +201,17 @@ function setupUpload() {
       return;
     }catch(e){ console.warn('Blossom upload failed, trying NIP-96', e); }
     try{
-      const up2 = await uploadWithNip96(file, client.signer || await client.login());
+      // Try to get signer from active auth plugin
+      let signer = null;
+      const activePlugin = await authManager.getActivePlugin();
+      if (activePlugin && activePlugin.getSigner) {
+        signer = await activePlugin.getSigner();
+      }
+      if (!signer) {
+        // Fallback to client login if no plugin signer available
+        signer = client.signer || await client.login();
+      }
+      const up2 = await uploadWithNip96(file, signer);
       document.getElementById('f-image').value = up2.url;
       return;
     }catch(e){ console.warn('NIP-96 upload failed, falling back to DataURL', e); }
@@ -400,6 +420,36 @@ function updateData(events) {
   applyFilters();
 }
 
+// Initialize Auth Plugin System
+async function initializeAuthPlugins() {
+  try {
+    console.log('[Auth] Initializing auth plugin system...');
+    
+    // Register Nostr Auth Plugin (standard Nostr authentication)
+    const nostrPlugin = new NostrAuthPlugin(client);
+    authRegistry.register('nostr', nostrPlugin);
+    
+    // Register WordPress Auth Plugin (SSO authentication)
+    const wpPlugin = new WordPressAuthPlugin(wpSSO);
+    authRegistry.register('wordpress', wpPlugin);
+    
+    // Initialize the AuthManager
+    await authManager.initialize();
+    
+    console.log('[Auth] Auth plugins registered successfully');
+    console.log('[Auth] Available plugins:', authRegistry.getAll().map(p => p.name));
+    
+    // Check if any plugin is already authenticated
+    const activePlugin = await authManager.getActivePlugin();
+    if (activePlugin) {
+      console.log('[Auth] Active plugin detected:', activePlugin.name);
+    }
+    
+  } catch (error) {
+    console.error('[Auth] Failed to initialize auth plugins:', error);
+  }
+}
+
 // DOM ready und Setup
 document.addEventListener('DOMContentLoaded', async () => {
   initEls();
@@ -414,9 +464,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // WordPress SSO Check (before other auth setup)
   await checkWordPressSSO();
   
+  // Initialize Auth Plugins
+  await initializeAuthPlugins();
+  
+  // Setup AuthManager UI
+  authManager.setupUI(els, () => {
+    console.log('[Auth] Auth state changed, updating UI...');
+  });
+  
+  // Connect AuthManager to legacy auth functions
+  setAuthManager(authManager);
+  
   // Module Setup
   setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => {
-    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
+    updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami });
   });
 
   // Determine the element that should trigger Bunker connection.
@@ -429,13 +490,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (res && res.pubkey && els.whoami) {
         await updateWhoami(els.whoami, res.method || 'nip46', res.pubkey);
       }
-      updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
+      updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami });
     });
   } else {
     console.debug('[App] kein Bunker-Trigger im DOM gefunden; Bunker-Connect disabled');
   }
 
-  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu, whoami: els.whoami }));
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,
@@ -470,7 +531,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // CRUD Events
   window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
   on(els.btnNew, 'click', async ()=>{
-    const loggedIn = await isLoggedIn();
+    const loggedIn = await authManager.isLoggedIn();
     if (!loggedIn) {
       alert('Bitte zuerst einloggen.');
       return;
@@ -518,35 +579,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     try{
-      // Check if WordPress SSO is active
-      const wpStatus = await wpSSO.checkSSO();
-      if (wpStatus && wpSSO.isAuthenticated) {
-        console.log('[WP-SSO] Creating event via WordPress SSO...');
-        
-        const eventData = {
-          title: data.title,
-          start: data.starts,
-          end: data.ends,
-          location: data.location || '',
-          description: data.description || '',
-          d: data.d || `wp-event-${Date.now()}`
-        };
-        
-        const result = await wpSSO.createCalendarEvent(eventData);
-        console.log('[WP-SSO] Event created:', result);
-        
-        els.modal.close();
-        await refresh();
-      } else {
-        // Normal Nostr client publishing
-        const { signed, d } = await client.publish(data);
-        els.modal.close();
-        try {
-          await refresh();
-        } catch (err) {
-          console.error('Refresh after save failed:', err);
-        }
-      }
+      // Use AuthManager for event creation
+      console.log('[App] Creating event via AuthManager...');
+      const result = await authManager.createEvent(data);
+      console.log('[App] Event created:', result);
+      
+      els.modal.close();
+      await refresh();
     }catch(err){
       console.error(err);
       alert('Veröffentlichen fehlgeschlagen. Details in der Konsole.');
@@ -556,7 +595,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = getFormData();
     data.status = 'cancelled';
     try{
-      await client.publish(data);
+      // Use AuthManager for event cancellation
+      await authManager.createEvent(data);
       els.modal.close();
       try {
         await refresh();
@@ -657,7 +697,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnBunker: els.btnBunker,
     btnManual: els.btnManual,
     btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu
+    btnLoginMenu: els.btnLoginMenu,
+    whoami: els.whoami
   }));
   initNip46FromUrl(els.whoami, () => updateAuthUI({
     btnNew: els.btnNew,
@@ -666,7 +707,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnBunker: els.btnBunker,
     btnManual: els.btnManual,
     btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu
+    btnLoginMenu: els.btnLoginMenu,
+    whoami: els.whoami
   }));
   
   // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
@@ -675,13 +717,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     on(els.btnLoginMenu, 'click', async () => {
       // Wenn bereits eingeloggt: Dropdown verbergen (soll nicht sichtbar sein)
       try {
-        if (typeof isLoggedIn === 'function' && await isLoggedIn()) {
+        if (await authManager.isLoggedIn()) {
           els.loginMenu.classList.add('hidden');
           return;
         }
       } catch (e) {
         // If isLoggedIn throws, fall through to toggle menu
-        console.debug('[App] isLoggedIn check failed:', e);
+        console.debug('[App] authManager.isLoggedIn check failed:', e);
       }
       // Toggle visibility
       els.loginMenu.classList.toggle('hidden');

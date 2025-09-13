@@ -1,20 +1,5 @@
 // js/nostr.js
 
-// --- Pre-Capture of WP handoff params (runs at module import) ---  
-(() => {
-  try {
-    const p = new URLSearchParams(location.search);
-    const keys = ['wp_name','npub','nprofile','nip46','connect'];
-    const bag = {};
-    let has = false;
-    for (const k of keys) {
-      const v = p.get(k);
-      if (v) { bag[k]=v; has = true; }
-    }
-    if (has) localStorage.setItem('wp_handoff_params', JSON.stringify(bag));
-  } catch {}
-})();
-
 // Nostr helpers: auth, fetch, publish (NIP-52: kind 31923)
 import { Config } from './config.js';
 import { uid, b64 } from './utils.js';
@@ -686,67 +671,3 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
 }
 
 export const client = new NostrClient();
-
-export const Nostr = {
-  relays: [
-    'wss://relay.damus.io',
-    'wss://nostr.wine',
-    'wss://relayable.org',
-  ],
-  pool: null,
-  pubkey: null,
-
-  async init() {
-    if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
-    const { SimplePool } = await import(poolUrl);
-    this.pool = new SimplePool()
-  },
-
-  async loginWithSSO(serverBase = 'http://localhost:8787') {
-    await this.init()
-    // 1) ask server for challenge
-    const s1 = await fetch(`${serverBase}/sso/start`, {
-      method: 'POST',
-      credentials: 'include',
-    }).then(r => r.json())
-
-    // 2) sign a small login-event (non-standard kind), carrying the nonce in content
-    const loginEvent = await window.nostr.signEvent({
-      kind: 27235, // arbitrary app-login kind
-      created_at: Math.floor(Date.now() / 1000),
-      tags: [['t', 'login'], ['client', 'nostr-calendar-app']],
-      content: s1.nonce,
-    })
-
-    // 3) finish at server (verifies signature + nonce) -> session cookie
-    const s2 = await fetch(`${serverBase}/sso/finish`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ event: loginEvent }),
-    }).then(r => r.json())
-
-    if (!s2.ok) throw new Error('Login fehlgeschlagen')
-    this.pubkey = s2.pubkey
-    return s2
-  },
-
-  async publish({ kind, content = '', tags = [] }) {
-    if (!window.nostr) throw new Error('NIP-07 Signer nicht gefunden')
-    const finalTags = Array.isArray(tags) ? [...tags] : []
-
-    const draft = {
-      kind,
-      created_at: Math.floor(Date.now() / 1000),
-      tags: finalTags,
-      content,
-    }
-
-    // non-custodial signing by user
-    const signed = await window.nostr.signEvent(draft)
-
-    // publish to relays
-    await Promise.any(this.pool.publish(this.relays, signed))
-    return signed
-  },
-}

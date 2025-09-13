@@ -2,6 +2,16 @@ import { client } from './nostr.js';
 import { on } from './utils.js';
 import { getAuthorMeta } from './author.js';
 
+// Auth Manager will be set by app.js after initialization
+let authManager = null;
+
+/**
+ * Set the auth manager instance (called by app.js)
+ */
+export function setAuthManager(manager) {
+  authManager = manager;
+}
+
 /*
   Secure storage helpers (WebCrypto):
   - Wir verschlüsseln den nsec-Key mit einem passwortbasierten Schlüssel (PBKDF2 -> AES-GCM).
@@ -100,31 +110,26 @@ async function decryptWithPassword(password, payloadJson) {
 
 export async function isLoggedIn() {
   console.debug('[Auth] Checking login status...');
-  // Prüfe zuerst lokalen Signer
-  if (client && client.signer) return true;
-  console.debug('[Auth] No local signer found');
   
-  // Prüfe WordPress SSO
-  try {
-    const wpSSORes = await fetch('http://localhost:8787/wp-sso-status', { credentials: 'include' });
-    console.debug('[Auth] WP-SSO status response:', wpSSORes.status);
-    if (wpSSORes.ok) {
-      const wpData = await wpSSORes.json();
-      console.debug('[Auth] WP-SSO data:', wpData);
-      // Prüfe ob WordPress SSO aktiv ist (ok: true und wp_user vorhanden)
-      if (wpData.ok && wpData.wp_user) {
-        console.debug('[Auth] WordPress SSO user found:', wpData.wp_user.username);
-        return true;
-      }
+  // Use AuthManager if available
+  if (authManager) {
+    try {
+      const result = await authManager.isLoggedIn();
+      console.debug('[Auth] AuthManager login status:', result);
+      return result;
+    } catch (error) {
+      console.debug('[Auth] AuthManager check failed:', error);
     }
-  } catch (e) {
-    console.debug('[Auth] WP-SSO status check failed:', e.message);
-    // WordPress SSO nicht verfügbar, weitermachen
   }
-
-  console.debug('[Auth] No WordPress SSO session found');
-  return false;
   
+  // Fallback: check client signer directly (legacy mode)
+  if (client && client.signer) {
+    console.debug('[Auth] Legacy: found local signer');
+    return true;
+  }
+  
+  console.debug('[Auth] No authentication found');
+  return false;
 }
 
 export async function login() {
@@ -132,41 +137,32 @@ export async function login() {
   return res;
 }
 
-// SSO Login using server delegation (NIP-26)
-export async function ssoLogin() {
-  try {
-    // Import Nostr object if not already
-    const { Nostr } = await import('./nostr.js');
-    
-    // Step 1: SSO Login first
-    const ssoRes = await Nostr.loginWithSSO();
-    client.pubkey = ssoRes.pubkey;
-    
-    // Setup NIP-07 signer
-    if (window.nostr && window.nostr.getPublicKey) {
-      client.signer = {
-        type: 'nip07-sso',
-        getPublicKey: async () => client.pubkey,
-        signEvent: async (evt) => window.nostr.signEvent(evt)
-      };
-    }
-    
-    console.log('[Auth] SSO Login successful');
-    return { 
-      method: 'sso', 
-      pubkey: ssoRes.pubkey, 
-      delegator: ssoRes.delegator
-    };
-  } catch (err) {
-    console.error('SSO Login fehlgeschlagen:', err);
-    throw err;
-  }
-}
-
 export async function updateAuthUI(els) {
   const loggedIn = await isLoggedIn();
   els.btnNew.disabled = !loggedIn;
   els.btnNew.title = loggedIn ? 'Neuen Termin anlegen' : 'Bitte zuerst einloggen';
+
+  // Update whoami if authenticated
+  if (loggedIn && els.whoami) {
+    try {
+      // Use AuthManager for comprehensive identity info
+      if (authManager) {
+        const identity = await authManager.getIdentity();
+        if (identity) {
+          await updateWhoami(els.whoami, identity.method, identity.pubkey);
+        }
+      } else {
+        // Fallback: legacy mode
+        if (client && client.pubkey) {
+          await updateWhoami(els.whoami, 'legacy', client.pubkey);
+        }
+      }
+    } catch (error) {
+      console.debug('[Auth] Error updating whoami in updateAuthUI:', error);
+    }
+  } else if (els.whoami) {
+    els.whoami.textContent = '';
+  }
 
   // Falls ein Dropdown-Trigger übergeben wurde, steuere dessen Sichtbarkeit ebenfalls
   if (loggedIn) {
@@ -189,21 +185,10 @@ export async function updateAuthUI(els) {
 export async function logout(els, whoami) {
   await client.logout();
   
-  // Clear WordPress SSO if active
-  try {
-    await fetch('http://localhost:8787/wp-logout', { 
-      method: 'POST', 
-      credentials: 'include' 
-    });
-  } catch (e) {
-    console.log('[AUTH] WordPress SSO logout not available:', e.message);
-  }
-  
   // Clear all stored data
   localStorage.removeItem('nostr_sk_hex');
   localStorage.removeItem('nip46_connect_uri');
   localStorage.removeItem('nip46_client_sk_hex');
-  localStorage.removeItem('wp_handoff_params');
   deleteCookie('nostr_manual_nsec');
   
   // Clear session storage
@@ -235,15 +220,52 @@ export async function logout(els, whoami) {
 /**
  * Zentrale Funktion zum Aktualisieren des whoami-Elements mit Author-Namen.
  * @param {HTMLElement} whoami - Das whoami-Element.
- * @param {string} method - Die Login-Methode (z.B. 'nip07', 'manual', 'nip46').
+ * @param {string} method - Die Login-Methode (z.B. 'nip07', 'manual', 'nip46', 'wordpress_sso').
  * @param {string} pubkey - Die Pubkey (hex).
  */
 export async function updateWhoami(whoami, method, pubkey) {
-  if (whoami && pubkey) {
-    const meta = await getAuthorMeta(pubkey);
-    console.debug('[Auth] Updating whoami for', pubkey, 'meta=', meta);
-    const displayName = meta?.name || 'Unbekannter User';
-    whoami.innerHTML = `<span title="pubkey: ${pubkey.slice(0,8)}… (${method})">${displayName}</span>`;
+  if (!whoami) return;
+  
+  try {
+    // Use AuthManager if available to get comprehensive identity info
+    if (authManager) {
+      const identity = await authManager.getIdentity();
+      if (identity) {
+        console.debug('[Auth] Updating whoami with AuthManager identity:', identity);
+        
+        if (identity.method === 'wordpress_sso') {
+          // Special formatting for WordPress SSO
+          const calendarName = identity.calendarIdentity?.name || 'Unbekannter Calendar User';
+          const wpUser = identity.user?.display_name || identity.user?.username || 'Unbekannter WP User';
+          const pubkeyShort = identity.calendarIdentity?.pubkey?.slice(0, 12) || 'unknown';
+          
+          whoami.innerHTML = `
+            <div style="text-align: left;">
+              <div><strong>📅 Calendar Identity:</strong> ${calendarName}</div>
+              <div style="font-size: 0.85em; color: #666;">WordPress User: ${wpUser}</div>
+              <div style="font-size: 0.75em; color: #999;">${pubkeyShort}...</div>
+            </div>
+          `;
+        } else {
+          // Standard Nostr formatting
+          const meta = await getAuthorMeta(pubkey);
+          const displayName = meta?.name || identity.displayName || 'Unbekannter User';
+          whoami.innerHTML = `<span title="pubkey: ${pubkey.slice(0,8)}… (${method})">${displayName}</span>`;
+        }
+        return;
+      }
+    }
+    
+    // Fallback: legacy mode
+    if (pubkey) {
+      const meta = await getAuthorMeta(pubkey);
+      console.debug('[Auth] Updating whoami (legacy) for', pubkey, 'meta=', meta);
+      const displayName = meta?.name || 'Unbekannter User';
+      whoami.innerHTML = `<span title="pubkey: ${pubkey.slice(0,8)}… (${method})">${displayName}</span>`;
+    }
+  } catch (error) {
+    console.error('[Auth] Error updating whoami:', error);
+    whoami.textContent = 'Auth Error';
   }
 }
 
