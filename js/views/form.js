@@ -63,7 +63,7 @@ export function fill_form_for_debugging(){
   setEditableChips(tags);
 
   return {
-    title, starts: startSecs, ends: endsSecs, status, location, image: imageUrl, summary, content, tags, d: dtag, id
+    title, start: startSecs, end: endsSecs, status, location, image: imageUrl, summary, content, tags, d: dtag, id
   };
 }
 

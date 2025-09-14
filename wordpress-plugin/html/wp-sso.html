@@ -102,7 +102,14 @@
       const loadingEl = document.getElementById('loading');
       const buttonsEl = document.getElementById('action-buttons');
 
+      // If no token but an explicit logout action, clear session
       if (!token) {
+        if (urlParams.get('action') === 'logout') {
+          localStorage.removeItem('wp_sso_session');
+          showSuccess('✅ Abgemeldet.');
+          setTimeout(() => { window.location.href = '/nostr-calendar/'; }, 1200);
+          return;
+        }
         showError('Kein WordPress SSO Token gefunden.');
         return;
       }
@@ -144,6 +151,15 @@
           expires: payload.expires,
           authenticated_at: Date.now()
         };
+
+        // Include calendar_pubkey from token payload if present
+        if (payload.calendar_pubkey) {
+          sessionData.calendar_identity = {
+            pubkey: payload.calendar_pubkey,
+            name: payload.wp_display_name || payload.wp_username,
+            about: `WordPress user from ${payload.wp_site_url}`
+          };
+        }
 
         localStorage.setItem('wp_sso_session', JSON.stringify(sessionData));
         

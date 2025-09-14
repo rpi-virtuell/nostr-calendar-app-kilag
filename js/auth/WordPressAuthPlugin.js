@@ -27,6 +27,21 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           try {
             const session = JSON.parse(sessionData);
             if (Date.now() / 1000 < session.expires) {
+              // Normalize calendar_identity.pubkey to match server algorithm
+              try {
+                if (session.user && session.user.id) {
+                  const siteUrl = session.site_url || session.wp_site_url || this.wpSiteUrl;
+                  const expectedPub = await this.generateDeterministicPubkey(session.user.id, siteUrl);
+                  if (!session.calendar_identity) session.calendar_identity = {};
+                  if (!session.calendar_identity.pubkey || session.calendar_identity.pubkey !== expectedPub) {
+                    session.calendar_identity.pubkey = expectedPub;
+                    localStorage.setItem('wp_sso_session', JSON.stringify(session));
+                  }
+                }
+              } catch (e) {
+                console.debug('[WordPressAuth] Error normalizing session pubkey during init:', e);
+              }
+
               this.currentSession = session;
               console.log('[WordPressAuth] Valid SSO session found, user logged in:', session.user.username);
             }
@@ -75,11 +90,11 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     }
 
     const identity = {
-      pubkey: calendarIdentity?.pubkey || this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
+      pubkey: calendarIdentity?.pubkey || await this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
       user: user,
       wpUser: user, // backwards compatibility
-      calendarIdentity: calendarIdentity || {
-        pubkey: this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
+  calendarIdentity: calendarIdentity || {
+  pubkey: await this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
         name: user.display_name || user.username,
         about: `WordPress user from ${session.site_url || session.wp_site_url}`,
         nip05: `${user.username}@${new URL(session.site_url || session.wp_site_url).hostname}`
@@ -142,11 +157,11 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         authenticated_at: Date.now(),
         // Generate a calendar identity for this WordPress user
         calendar_identity: {
-          pubkey: this.generateDeterministicPubkey(payload.wp_user_id, payload.wp_site_url),
-          name: payload.wp_display_name || payload.wp_username,
-          about: `WordPress user from ${payload.wp_site_url}`,
-          nip05: `${payload.wp_username}@${new URL(payload.wp_site_url).hostname}`
-        }
+            pubkey: await this.generateDeterministicPubkey(payload.wp_user_id, payload.wp_site_url),
+            name: payload.wp_display_name || payload.wp_username,
+            about: `WordPress user from ${payload.wp_site_url}`,
+            nip05: `${payload.wp_username}@${new URL(payload.wp_site_url).hostname}`
+          }
       };
 
       // Store in localStorage and memory
@@ -497,6 +512,22 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }
 
       // Session is valid
+      // Ensure calendar_identity.pubkey matches deterministic algorithm
+      try {
+        if (session.user && session.user.id) {
+          const siteUrl = session.site_url || session.wp_site_url || this.wpSiteUrl;
+          const expectedPub = await this.generateDeterministicPubkey(session.user.id, siteUrl);
+          if (!session.calendar_identity) session.calendar_identity = {};
+          if (!session.calendar_identity.pubkey || session.calendar_identity.pubkey !== expectedPub) {
+            session.calendar_identity.pubkey = expectedPub;
+            localStorage.setItem('wp_sso_session', JSON.stringify(session));
+            console.log('[WordPressAuth] Normalized local session pubkey for user:', session.user.username);
+          }
+        }
+      } catch (e) {
+        console.debug('[WordPressAuth] Error normalizing session pubkey:', e);
+      }
+
       this.currentSession = session;
       console.log('[WordPressAuth] Found valid local session for:', session.user.username);
       return session;
@@ -508,21 +539,24 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     }
   }
 
-  generateDeterministicPubkey(userId, siteUrl) {
-    // Generate a deterministic but unique pubkey for WordPress users
-    // This is a simple approach - in production you might want something more sophisticated
+  async generateDeterministicPubkey(userId, siteUrl) {
+    // Generate deterministic pubkey matching PHP's hash('sha256', $input)
     const input = `wp-user-${userId}-${siteUrl}`;
     const encoder = new TextEncoder();
     const data = encoder.encode(input);
-    
-    // Simple hash to create a hex string (64 chars for pubkey format)
-    let hash = '';
-    for (let i = 0; i < data.length; i++) {
-      hash += data[i].toString(16).padStart(2, '0');
+
+    // Use WebCrypto to compute SHA-256
+    const digest = await crypto.subtle.digest('SHA-256', data);
+
+    // Convert ArrayBuffer to lowercase hex string
+    const bytes = new Uint8Array(digest);
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, '0');
     }
-    
-    // Pad or truncate to 64 characters (32 bytes in hex)
-    return hash.padEnd(64, '0').slice(0, 64);
+
+    // Ensure 64-character lowercase hex (32 bytes)
+    return hex.toLowerCase().slice(0, 64).padEnd(64, '0');
   }
 
   showSSONotification(username) {

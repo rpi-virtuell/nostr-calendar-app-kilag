@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Logout</title>
+</head>
+<body>
+  <script>
+    try {
+      // Clear the stored WP SSO session
+      localStorage.removeItem('wp_sso_session');
+    } catch(e) {
+      // ignore
+    }
+    // If opened directly, redirect back to calendar
+    try { window.location.href = '/nostr-calendar/'; } catch(e){}
+  </script>
+</body>
+</html>

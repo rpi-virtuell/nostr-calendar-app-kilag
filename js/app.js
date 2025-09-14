@@ -288,6 +288,7 @@ async function openModalForEdit(evt){
     if (activePlugin && await activePlugin.isLoggedIn()) {
       // Get user's public key from active auth plugin
       const userPubKey = await activePlugin.getPublicKey();
+      console.log('[DEBUG AUTH] User pubkey from active plugin:', userPubKey); 
       if (evt.pubkey && evt.pubkey !== userPubKey) {
         alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
         return;

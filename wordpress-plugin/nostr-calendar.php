@@ -266,6 +266,10 @@ class NostrCalendar {
                         NOSTR_CALENDAR_PLUGIN_DIR . 'html/wp-sso.html',
                         dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/wp-sso.html'  // Root of nostr-calendar-app
                     ],
+                    'wp-logout' => [
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/wp-logout.html',
+                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/wp-logout.html'
+                    ],
                     'index.html' => [
                         NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
                         NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',

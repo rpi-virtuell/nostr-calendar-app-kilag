@@ -56,6 +56,8 @@ class NostrCalendarSSO {
             'wp_email' => $user->user_email,
             'wp_display_name' => $user->display_name,
             'wp_roles' => $user->roles,
+            // Add deterministic calendar pubkey to payload for client consistency
+            'calendar_pubkey' => $this->generate_deterministic_pubkey($user_id),
             'timestamp' => $timestamp,
             'expires' => $expires,
             'wp_site_url' => site_url()
@@ -66,6 +68,16 @@ class NostrCalendarSSO {
         $signature = hash_hmac('sha256', $token_data, $this->shared_secret);
         
         return $token_data . '.' . $signature;
+    }
+
+    /**
+     * Save deterministic pubkey to usermeta for quick lookup
+     */
+    private function ensure_user_pubkey_meta($user_id) {
+        $pub = $this->generate_deterministic_pubkey($user_id);
+        if ($pub) {
+            update_user_meta($user_id, 'nostr_calendar_pubkey', $pub);
+        }
     }
     
     /**
@@ -109,6 +121,8 @@ class NostrCalendarSSO {
             'permission_callback' => array($this, 'rest_permission_check')
         ));
     }
+
+    
     
     /**
      * REST API Permission Check
@@ -178,6 +192,10 @@ class NostrCalendarSSO {
             return new WP_Error('user_not_found', 'Benutzer nicht gefunden', array('status' => 404));
         }
         
+        // Prefer stored usermeta pubkey if present
+        $meta_pub = get_user_meta($user_id, 'nostr_calendar_pubkey', true);
+        $pubkey = $meta_pub ? $meta_pub : $this->generate_deterministic_pubkey($user_id);
+
         return array(
             'success' => true,
             'user' => array(
@@ -189,7 +207,7 @@ class NostrCalendarSSO {
             ),
             'site_url' => site_url(),
             'calendar_identity' => array(
-                'pubkey' => $this->generate_deterministic_pubkey($user_id),
+                'pubkey' => $pubkey,
                 'name' => $user->display_name ?: $user->user_login,
                 'about' => 'WordPress Benutzer von ' . site_url(),
                 'nip05' => $user->user_login . '@' . parse_url(site_url(), PHP_URL_HOST)
@@ -298,6 +316,8 @@ class NostrCalendarSSO {
         }
         
         $user_id = get_current_user_id();
+        // Ensure pubkey meta exists for this user
+        $this->ensure_user_pubkey_meta($user_id);
         $token = $this->generate_nostr_token($user_id);
         
         if ($token) {
@@ -328,8 +348,11 @@ class NostrCalendarSSO {
      * WordPress Login Hook
      */
     public function on_wp_login($user_login, $user) {
-        // Optional: Automatische Weiterleitung zur Calendar App
-        if (isset($_GET['redirect_to_calendar'])) {
+        // Ensure deterministic pubkey is stored in usermeta for quick lookup
+        $this->ensure_user_pubkey_meta($user->ID);
+        // Optional: Automatische Weiterleitung zur Calendar App if enabled
+        $auto = get_option('nostr_calendar_auto_redirect', 0);
+        if ($auto && isset($_GET['redirect_to_calendar'])) {
             $token = $this->generate_nostr_token($user->ID);
             wp_redirect($this->calendar_app_url . '/wp-sso.html?token=' . $token);
             exit;
@@ -340,8 +363,19 @@ class NostrCalendarSSO {
      * WordPress Logout Hook
      */
     public function on_wp_logout() {
-        // Optional: Calendar App über Logout informieren
-        // wp_remote_post($this->calendar_app_url . '/wp-logout', array(...));
+        // If auto-redirect enabled, redirect the browser to the calendar logout page
+        $auto = get_option('nostr_calendar_auto_redirect', 0);
+        if ($auto && !defined('DOING_CRON')) {
+            $logout_url = untrailingslashit($this->calendar_app_url) . '/wp-logout';
+            // Optionally pass return URL so the calendar can redirect back
+            $return_to = site_url();
+            $logout_url .= '?return=' . urlencode($return_to);
+
+            if (!headers_sent()) {
+                wp_safe_redirect($logout_url);
+                exit;
+            }
+        }
     }
     
     /**
@@ -431,10 +465,13 @@ class NostrCalendarSSO {
         if (isset($_POST['submit'])) {
             $this->calendar_app_url = sanitize_url($_POST['calendar_app_url']);
             update_option('nostr_calendar_app_url', $this->calendar_app_url);
+            $auto = isset($_POST['nostr_calendar_auto_redirect']) ? 1 : 0;
+            update_option('nostr_calendar_auto_redirect', $auto);
             echo '<div class="notice notice-success"><p>Einstellungen gespeichert!</p></div>';
         }
         
         $current_url = get_option('nostr_calendar_app_url', $this->calendar_app_url);
+        $auto_redirect = get_option('nostr_calendar_auto_redirect', 0);
         ?>
         <div class="wrap">
             <h1>Nostr Calendar SSO Integration</h1>
@@ -448,16 +485,31 @@ class NostrCalendarSSO {
                             <p class="description">URL Ihrer Nostr Calendar App (z.B. https://calendar.example.com)</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row">Auto Redirect</th>
+                        <td>
+                            <label for="nostr_calendar_auto_redirect">
+                                <input type="checkbox" id="nostr_calendar_auto_redirect" name="nostr_calendar_auto_redirect" value="1" <?php checked(1, $auto_redirect); ?> />
+                                Bei WordPress Login/Logout automatisch zum Calendar weiterleiten (SSO)
+                            </label>
+                            <p class="description">Wenn aktiviert, werden Nutzer nach dem Login automatisch an die Kalender‑SSO Seite weitergeleitet. Beim Logout werden sie an die Kalender‑Logout URL weitergeleitet.</p>
+                        </td>
+                    </tr>
                 </table>
                 
                 <?php submit_button(); ?>
             </form>
             
-            <h2>Integration Testen</h2>
+                <h2>Integration Testen</h2>
             <?php if (is_user_logged_in()): ?>
                 <p><strong>Aktueller User:</strong> <?php echo wp_get_current_user()->user_login; ?></p>
                 <button id="test-token" class="button">Token generieren & testen</button>
                 <div id="test-result"></div>
+                <h3>SSO Link</h3>
+                <p>Direct SSO page for this calendar instance (with generated token):</p>
+                <?php $uid = get_current_user_id(); $this->ensure_user_pubkey_meta($uid); $tok = $this->generate_nostr_token($uid); ?>
+                <p><a href="<?php echo esc_url($current_url); ?>/wp-sso.html?token=<?php echo urlencode($tok); ?>" target="_blank"><?php echo esc_url($current_url); ?>/wp-sso.html?token=... </a></p>
+                <p>Auto‑Redirect ist derzeit <strong><?php echo $auto_redirect ? 'aktiv' : 'deaktiv'; ?></strong>.</p>
             <?php else: ?>
                 <p>Bitte melden Sie sich an, um die Integration zu testen.</p>
             <?php endif; ?>

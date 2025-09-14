@@ -33,7 +33,10 @@ export class WordPressPluginAuth extends AuthPluginInterface {
   }
 
   async getIdentity() {
+    console.log('[WordPressPluginAuth] Getting identity from WordPress');
+    
     const session = await this.getSession();
+    console.log('[WordPressPluginAuth] Current session:', session);
     if (!session) return null;
 
     return {
