@@ -283,7 +283,7 @@ async function openModalForEdit(evt){
   // Check if user is allowed to edit this event
   try {
     // Check current authentication status
-    const activePlugin = authManager.getActivePlugin();
+    const activePlugin = await authManager.getActivePlugin();
     
     if (activePlugin && await activePlugin.isLoggedIn()) {
       // Get user's public key from active auth plugin
