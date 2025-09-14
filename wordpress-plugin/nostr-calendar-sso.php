@@ -3,7 +3,8 @@
  * Plugin Name: Nostr Calendar SSO Integration
  * Description: Ermöglicht WordPress-Benutzern die automatische Anmeldung in der Nostr Calendar App
  * Version: 1.0.0
- * Author: Johan Appel
+ * Author: johappel
+ * Author URI: https://github.com/johappel
  * License: MIT
  */
 
@@ -14,7 +15,7 @@ if (!defined('ABSPATH')) {
 
 class NostrCalendarSSO {
     
-    private $calendar_app_url = 'http://localhost:8787'; // In Produktion: Ihre Nostr Calendar Domain
+    private $calendar_app_url = '/nostr-calendar'; // In Produktion: Ihre Nostr Calendar Domain
     private $shared_secret = 'your-secure-shared-secret-key-here'; // In Produktion: Sichere Konfiguration
     
     public function __construct() {
@@ -287,7 +288,7 @@ new NostrCalendarSSO();
 // Aktivierungs-Hook
 register_activation_hook(__FILE__, function() {
     // Plugin-Aktivierung
-    add_option('nostr_calendar_app_url', 'http://localhost:8787');
+    add_option('nostr_calendar_app_url', home_url().'/nostr-calendar');
 });
 
 // Deaktivierungs-Hook  

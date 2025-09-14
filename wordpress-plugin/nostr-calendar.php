@@ -50,6 +50,11 @@ class NostrCalendar {
         
         // Load text domain
         load_plugin_textdomain('nostr-calendar', false, dirname(plugin_basename(__FILE__)) . '/languages');
+
+        // Rewrite rule to serve single-page calendar app at /nostr-calendar
+        add_rewrite_rule('^nostr-calendar/?$', 'index.php?nostr_calendar=1', 'top');
+        add_filter('query_vars', function($vars) { $vars[] = 'nostr_calendar'; return $vars; });
+        add_action('template_redirect', [$this, 'serve_calendar_page']);
     }
     
     public function enqueue_scripts() {
@@ -235,6 +240,34 @@ class NostrCalendar {
         
         // Flush rewrite rules
         flush_rewrite_rules();
+    }
+
+    /**
+     * Serve the plugin's single-page app when the rewrite rule matches.
+     */
+    public function serve_calendar_page() {
+        if (get_query_var('nostr_calendar')) {
+            // candidate locations for the frontend index.html inside plugin
+            $candidates = [
+                NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
+                NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',
+                NOSTR_CALENDAR_PLUGIN_DIR . 'index.html',
+                NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html'
+            ];
+
+            foreach ($candidates as $file) {
+                if (file_exists($file)) {
+                    header('Content-Type: text/html; charset=utf-8');
+                    readfile($file);
+                    exit;
+                }
+            }
+
+            // If not found, return 404
+            status_header(404);
+            echo '<h1>Nostr Calendar</h1><p>Frontend not found in plugin folder.</p>';
+            exit;
+        }
     }
     
     public function deactivate() {

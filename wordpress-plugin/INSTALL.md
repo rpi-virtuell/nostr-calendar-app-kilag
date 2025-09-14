@@ -26,6 +26,23 @@ cp -r wordpress-plugin /path/to/wordpress/wp-content/plugins/nostr-calendar
 3. Gehen Sie zu **Settings → Nostr Calendar**
 4. Konfigurieren Sie Ihre Nostr-Relays
 
+### 2.b SPA-Zugang bereitstellen
+
+Das Plugin liefert optional eine Single-Page-App aus dem Plugin-Ordner unter der URL `https://example-wp.com/nostr-calendar` aus. Dazu legen Sie die gebaute `index.html` Ihrer Frontend-App in eines der folgenden Verzeichnisse:
+
+- `wp-content/plugins/nostr-calendar/html/index.html`
+- `wp-content/plugins/nostr-calendar/assets/html/index.html`
+- `wp-content/plugins/nostr-calendar/index.html`
+- `wp-content/plugins/nostr-calendar/assets/index.html`
+
+Nach dem Hochladen der Datei rufen Sie die URL `https://your-site/nostr-calendar` auf. Das Plugin registriert beim Aktivieren eine Rewrite-Rule und liefert die Datei direkt aus. Wenn Sie Probleme mit 404 haben, flushen Sie die Rewrite-Regeln in WordPress (Einstellungen → Permalinks → Änderungen speichern) oder führen Sie:
+
+```bash
+# Flush rewrite rules via WP-CLI
+wp rewrite flush --allow-root
+```
+
+
 ### 3. Shortcode verwenden
 ```php
 // Vollständiger Kalender

@@ -1,180 +1,138 @@
 # Nostr Calendar WordPress Plugin
 
-Ein WordPress Plugin für dezentrale Kalender-Events über das Nostr-Protokoll.
+Ein WordPress-Plugin, das dezentrale Kalender-Events über das Nostr-Protokoll verwaltet und sowohl client- als auch serverseitige Optionen für Signatur und Publishing bietet.
 
-## Features
+## Kurzüberblick
 
-- 🔐 **WordPress SSO Integration** - Nutzt bestehende WordPress-Benutzer
-- 📅 **Dezentrale Events** - Publiziert Events zu Nostr-Relays
-- 🔑 **Automatische Identitäten** - Generiert Nostr-Identitäten für WordPress-Benutzer
-- 🎨 **Responsive UI** - Modernes Calendar-Interface mit Sidebar
-- 🔄 **Real-time Sync** - WebSocket-Verbindungen zu Nostr-Relays
-- 🎯 **Plugin-Architektur** - Erweiterbar für andere Auth-Methoden
+- WordPress-SSO Integration: Verwendet WordPress-Benutzerkonten und Rollen.
+- Dezentrale Events: Publiziert Nostr-Events zu konfigurierbaren Relays.
+- Identitäts-Management: Generiert und verwaltet Nostr-Identitäten pro Benutzer.
+- Flexible Architektur: Serverseitiges Signieren/Publizieren via PHP oder clientseitiges Publizieren via WebSocket (konfigurierbar).
+
+## Highlights (neu)
+
+- Admin-Diagnose: Detaillierte Informationen zu PHP-SAPI, geladenen Extensions (z. B. GMP), Composer-Autoloader-Pfaden und Klassen-Erkennung.
+- Fallback-Krypto: Vereinfachte Implementierung für Umgebungen ohne ext-gmp (nur für Entwicklung). Produktion sollte `ext-gmp` + `kornrunner/secp256k1` verwenden.
+- Composer-Integration: Installiere PHP-Libraries im Plugin-Ordner mit derselben PHP-Version wie der Webserver (PHP-FPM).
 
 ## Installation
 
-### 1. Plugin Installation
+1. Plugin-Ordner nach WordPress kopieren:
 
 ```bash
-# Plugin-Ordner in WordPress kopieren
 cp -r wordpress-plugin /path/to/wordpress/wp-content/plugins/nostr-calendar
-
-# PHP Dependencies installieren
-cd /path/to/wordpress/wp-content/plugins/nostr-calendar
-composer install --no-dev --optimize-autoloader
 ```
 
-### 2. Plugin Aktivierung
+2. Composer-Abhängigkeiten im Plugin-Verzeichnis installieren. WICHTIG: Verwende dieselbe PHP-Binärdatei, die auch vom Webserver (PHP-FPM) genutzt wird. Beispiel für Ubuntu mit PHP 8.1 FPM:
 
-1. WordPress Admin → Plugins
-2. "Nostr Calendar" aktivieren
-3. Settings → Nostr Calendar → Relay-URLs konfigurieren
+```bash
+cd /path/to/wordpress/wp-content/plugins/nostr-calendar
+sudo php8.1 /usr/local/bin/composer install --no-dev --optimize-autoloader
+```
 
-### 3. Verwendung
+3. Plugin in WordPress aktivieren (Admin → Plugins).
 
-#### Shortcode für kompletten Kalender:
+4. Einstellungen → Nostr Calendar → Relays konfigurieren.
+
+## Shortcodes
+
+Shortcode kompletter Kalender:
+
 ```php
 [nostr_calendar theme="light" view="month" height="600px"]
 ```
 
-#### Shortcode für Benutzer-spezifischen Kalender:
+Benutzerspezifischer Kalender (readonly):
+
 ```php
 [nostr_user_calendar user_id="123" readonly="true"]
 ```
 
-#### Shortcode mit benutzerdefinierten Relays:
+Shortcode mit benutzerdefinierten Relays:
+
 ```php
 [nostr_calendar relays="wss://relay1.com,wss://relay2.com"]
 ```
 
 ## WordPress REST API Endpoints
 
-Das Plugin ersetzt die Node.js Server-Endpoints:
+Die wichtigsten REST-Endpunkte (Namespace: `nostr-calendar/v1`):
 
-### Authentifizierung
-- `GET /wp-json/nostr-calendar/v1/me` - Aktueller Benutzer-Status
-- `GET /wp-json/nostr-calendar/v1/sso-status` - SSO-Status prüfen
+- `GET /wp-json/nostr-calendar/v1/me` — aktueller Benutzer-Status
+- `GET /wp-json/nostr-calendar/v1/sso-status` — SSO-Status prüfen
+- `POST /wp-json/nostr-calendar/v1/event` — Event erstellen (signieren + optional publish)
+- `DELETE /wp-json/nostr-calendar/v1/event/{id}` — Event löschen
+- `GET /wp-json/nostr-calendar/v1/events` — Benutzer-Events abrufen
 
-### Event-Management
-- `POST /wp-json/nostr-calendar/v1/event` - Event erstellen
-- `DELETE /wp-json/nostr-calendar/v1/event/{id}` - Event löschen
-- `GET /wp-json/nostr-calendar/v1/events` - Benutzer-Events abrufen
+Hinweis: Publishing kann serverseitig in PHP erfolgen (empfohlen, wenn private keys serverseitig gespeichert) oder clientseitig per WebSocket, falls private keys nur im Browser verwendet werden.
 
-## Technische Architektur
+## Projektstruktur (wichtige Dateien)
 
-### PHP-Klassen:
-- `NostrCalendar` - Haupt-Plugin-Klasse
-- `NostrCalendarRestAPI` - REST API Handler
-- `NostrCalendarIdentity` - Identitäts-Management
-- `NostrCalendarPublisher` - Nostr Event Publishing
+- `nostr-calendar.php` — Haupt-Plugin-Bootstrap und Admin-Menü
+- `includes/class-simple-crypto.php` — Fallback-Kryptographie und Diagnose-Utilities
+- `includes/class-rest-api.php` — REST-API-Routen und Handler
+- `includes/class-identity.php` — Identitätsverwaltung (Erstellen, Abrufen, Verschlüsseln von Private Keys)
+- `includes/class-publisher.php` — Publisher-Logik (signieren, Relay-Publishing)
+- `wordpress-plugin/README.md` — Diese Datei
+- `wordpress-plugin/INSTALL.md` — Installationshinweise
+- `wordpress-plugin/documentation.md` — (neu) Detaillierte Architektur & Ablaufbeschreibung
+- `vendor/` — Composer-Abhängigkeiten (nach `composer install`)
 
-### JavaScript Integration:
-- `WordPressPluginAuth.js` - WordPress Plugin Auth Provider
-- Nutzt WordPress REST API statt Node.js Server
-- Integriert mit bestehender Plugin-Architektur
+## Betrieb & Troubleshooting
 
-### Datenbank-Tabellen:
-- `wp_nostr_calendar_identities` - Nostr-Identitäten für WP-Benutzer
-- `wp_nostr_calendar_events` - Event-Cache für Performance
+1. GMP wird in vielen Systemen nicht automatisch in allen SAPIs geladen (CLI vs FPM). Wenn Admin-Diagnose `gmp` nicht zeigt, prüfe:
+
+```bash
+# Paket installieren (Beispiel Ubuntu und php8.1-fpm installiert):
+sudo apt install php8.1-gmp
+# GMP für SAPI aktivieren (wenn nötig):
+sudo phpenmod -v 8.1 gmp
+sudo systemctl restart php8.1-fpm 
+sudo systemctl restart apache2  # oder nginx
+
+# Composer mit derselben PHP-Version ausführen wie FPM:
+sudo php8.1 /usr/local/bin/composer install --no-dev --optimize-autoloader
+```
+
+2. Composer-Autoloader wird im Plugin-Ordner erwartet: `wp-content/plugins/nostr-calendar/vendor/autoload.php`.
+3. Wenn `kornrunner/secp256k1` nicht geladen wird, prüfe die `vendor/`-Ordnerinhalte und ob `composer install` mit der Webserver-PHP ausgeführt wurde.
+
+## Sicherheit
+
+- Private Keys werden verschlüsselt in der WordPress-Datenbank gespeichert und sollten niemals an das Frontend gesendet werden.
+- Für Produktion: ext-gmp + `kornrunner/secp256k1` verwenden. Fallback-Krypto ist nur für Entwicklung.
+- Verwende HTTPS für alle Relay-Verbindungen.
 
 ## Migration von Node.js
 
-### Schritte zur Migration:
+Wenn vorher ein Node.js-Server für Signing/Publishing verwendet wurde, sind die Schritte:
 
-1. **WordPress Plugin installieren und aktivieren**
-2. **Frontend aktualisieren:**
-   ```javascript
-   // Ersetze in app.js:
-   import { WordPressAuthPlugin } from './auth/WordPressAuthPlugin.js';
-   // Mit:
-   import { WordPressPluginAuth } from './WordPressPluginAuth.js';
-   
-   // Plugin-Registrierung aktualisieren:
-   const wpPlugin = new WordPressPluginAuth();
-   authRegistry.register('wordpress', wpPlugin);
-   ```
-
-3. **Server-URLs anpassen:**
-   ```javascript
-   // Alte Node.js URLs:
-   // http://localhost:8787/wp-calendar/event
-   
-   // Neue WordPress REST API URLs:
-   // /wp-json/nostr-calendar/v1/event
-   ```
-
-4. **Node.js Server entfernen** (optional nach erfolgreicher Migration)
-
-## Konfiguration
-
-### Admin-Einstellungen:
-- **Relays:** Liste der Nostr-Relay-URLs
-- **Identitäts-Management:** Automatische Schlüsselgenerierung
-- **Event-Einstellungen:** Cache-Konfiguration
-
-### Programmatische Konfiguration:
-```php
-// Relays setzen
-update_option('nostr_calendar_relays', [
-    'wss://relay.damus.io',
-    'wss://nos.lol',
-    'wss://relay.snort.social'
-]);
-
-// Identität für Benutzer abrufen
-$identity_manager = new NostrCalendarIdentity();
-$identity = $identity_manager->get_or_create_identity(get_current_user_id());
-```
+1. Plugin installieren und aktivieren.
+2. Frontend-Code so anpassen, dass die neue REST-API genutzt wird (siehe Migration-Guide in `documentation.md`).
+3. Testen: Event-Erstellung, Signatur-Verifikation, Publishing an Relays.
+4. Node.js-Server abschalten, wenn alle Funktionen erfolgreich migriert sind.
 
 ## Entwicklung
 
-### Requirements:
-- PHP 7.4+
-- WordPress 5.0+
-- Composer
-- secp256k1 PHP Extension (empfohlen)
+Requirements:
 
-### Development Setup:
+- PHP >= 8.1 (empfohlen für `kornrunner/secp256k1`)
+- Composer
+- WordPress 5.0+
+
+Dev-Setup:
+
 ```bash
 git clone https://github.com/johappel/nostr-calendar-app
 cd nostr-calendar-app/wordpress-plugin
 composer install
 ```
 
-### Testing:
-```bash
-composer test
-```
+## Support & Kontakt
 
-## Roadmap
-
-- [ ] **Advanced Relay Management** - Relay-Health-Monitoring
-- [ ] **Event Categories** - WordPress-Category Integration
-- [ ] **Multi-Site Support** - WordPress Multisite Kompatibilität
-- [ ] **Advanced Permissions** - Rollenbasierte Event-Berechtigungen
-- [ ] **Export/Import** - Bulk-Event Management
-- [ ] **Analytics** - Event-Statistiken im WordPress Dashboard
-
-## Sicherheit
-
-### Empfohlene Sicherheitsmaßnahmen:
-- HTTPS für alle Relay-Verbindungen
-- Starke WordPress-Passwörter
-- Regular Plugin-Updates
-- Backup der Nostr-Identitäten
-
-### Private Key Management:
-- Private Keys werden verschlüsselt in der WordPress-Datenbank gespeichert
-- Nur für Server-seitige Event-Signierung verwendet
-- Nie an Frontend übertragen
-
-## Support
-
-Bei Fragen oder Problemen:
 - GitHub Issues: https://github.com/johappel/nostr-calendar-app/issues
 - WordPress Support Forum
-- Nostr Community Discord
 
 ## Lizenz
 
-MIT License - siehe LICENSE Datei für Details.
+MIT License
