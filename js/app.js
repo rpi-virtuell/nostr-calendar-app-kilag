@@ -11,7 +11,6 @@ import { on, chip } from './utils.js';
 import { setupBunkerEvents, initNip46FromUrl, connectBunker } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
-import { wpSSO } from './wp-sso.js';
 
 // New Plugin-based Authentication System
 import { AuthManager } from './auth/AuthManager.js';
@@ -283,17 +282,18 @@ function openModalForNew(){
 async function openModalForEdit(evt){
   // Check if user is allowed to edit this event
   try {
-    // For WordPress SSO users, check against WordPress identity
-    const wpStatus = await wpSSO.checkSSO();
-    if (wpStatus && wpSSO.isAuthenticated) {
-      // WordPress SSO: Events created by this identity can be edited
-      const wpIdentity = wpStatus.calendar_identity.pubkey;
-      if (evt.pubkey && evt.pubkey !== wpIdentity) {
+    // Check current authentication status
+    const activePlugin = authManager.getActivePlugin();
+    
+    if (activePlugin && await activePlugin.isLoggedIn()) {
+      // Get user's public key from active auth plugin
+      const userPubKey = await activePlugin.getPublicKey();
+      if (evt.pubkey && evt.pubkey !== userPubKey) {
         alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
         return;
       }
     } else if (client && client.signer) {
-      // Normal Nostr authentication
+      // Fallback to direct Nostr authentication
       const userPubKey = await client.signer.getPublicKey();
       if (evt.pubkey && evt.pubkey !== userPubKey) {
         alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
@@ -438,48 +438,6 @@ async function refresh(){
   updateData(events);
 }
 
-// WordPress SSO Integration
-async function checkWordPressSSO() {
-  try {
-    console.log('[WP-SSO] Checking for WordPress SSO...');
-    
-    // Check URL parameters for wp_sso success
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('wp_sso') === 'success') {
-      console.log('[WP-SSO] Success parameter detected');
-      
-      // Show user notification
-      showWPSSONotification(urlParams.get('user'));
-      
-      // Clean URL
-      const url = new URL(window.location);
-      url.searchParams.delete('wp_sso');
-      url.searchParams.delete('user');
-      window.history.replaceState({}, '', url);
-    }
-    
-    // Check WordPress SSO status
-    const ssoStatus = await wpSSO.checkSSO();
-    if (ssoStatus) {
-      console.log('[WP-SSO] WordPress user authenticated:', ssoStatus.wp_user);
-      
-      // Update UI to show WordPress user ONLY if SSO is active
-      updateWPSSOAuthUI(ssoStatus);
-      
-      // Auto-refresh events
-      await refresh();
-      
-      return true;
-    } else {
-      console.log('[WP-SSO] No WordPress SSO session found');
-      return false;
-    }
-  } catch (error) {
-    console.error('[WP-SSO] Check failed:', error);
-    return false;
-  }
-}
-
 // Show general notification
 function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
@@ -516,68 +474,6 @@ function showNotification(message, type = 'info') {
   }, 5000);
 }
 
-// Show WordPress SSO notification
-function showWPSSONotification(username) {
-  const notification = document.createElement('div');
-  notification.style.cssText = `
-    position: fixed; top: 20px; right: 20px; z-index: 10000;
-    background: #4CAF50; color: white; padding: 15px 20px;
-    border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    font-family: system-ui, sans-serif; font-size: 14px;
-  `;
-  notification.innerHTML = `
-    ✅ <strong>WordPress SSO erfolgreich!</strong><br>
-    Angemeldet als: ${username || 'WordPress User'}
-  `;
-  
-  document.body.appendChild(notification);
-  
-  // Auto-remove after 5 seconds
-  setTimeout(() => {
-    if (notification.parentNode) {
-      notification.parentNode.removeChild(notification);
-    }
-  }, 5000);
-}
-
-// Update Auth UI for WordPress SSO
-function updateWPSSOAuthUI(ssoStatus) {
-  if (els.whoami) {
-    const wpUser = ssoStatus.wp_user;
-    const identity = ssoStatus.calendar_identity;
-    
-    els.whoami.innerHTML = `
-      <div style="text-align: left;">
-        <div><strong>📅 Calendar Identity:</strong> ${identity.name}</div>
-        <div style="font-size: 0.85em; color: #666;">WordPress User: ${wpUser.display_name || wpUser.username}</div>
-        <div style="font-size: 0.75em; color: #999;">${identity.pubkey.slice(0, 16)}...</div>
-      </div>
-    `;
-  }
-  
-  // Hide login buttons and dropdown, show logout
-  if (els.btnLoginMenu) els.btnLoginMenu.style.display = 'none';
-  if (els.btnLogin) els.btnLogin.style.display = 'none';
-  if (els.btnLogout) {
-    els.btnLogout.style.display = 'inline-block';
-    els.btnLogout.classList.remove('hidden');
-    // Replace logout handler for WordPress SSO
-    els.btnLogout.onclick = async () => {
-      console.log('[WP-SSO] Logging out via WordPress SSO...');
-      await wpSSO.logout();
-      // Refresh page to reset UI state
-      window.location.reload();
-    };
-  }
-  
-  // Show new event button and enable it
-  if (els.btnNew) {
-    els.btnNew.style.display = 'inline-block';
-    els.btnNew.disabled = false;
-    els.btnNew.title = 'Neuen Termin anlegen';
-  }
-}
-
 function updateData(events) {
   state.events = events;
   buildMonthOptions(els.monthSelect, events);
@@ -594,7 +490,7 @@ async function initializeAuthPlugins() {
     authRegistry.register('nostr', nostrPlugin);
     
     // Register WordPress Auth Plugin (SSO authentication)
-    const wpPlugin = new WordPressAuthPlugin(wpSSO);
+    const wpPlugin = new WordPressAuthPlugin();
     authRegistry.register('wordpress', wpPlugin);
     
     // Initialize the AuthManager
@@ -624,10 +520,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Theme (only sidebar theme selector now)
   applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
   
-  // WordPress SSO Check (before other auth setup)
-  await checkWordPressSSO();
-  
-  // Initialize Auth Plugins
+  // Initialize Auth Plugins (includes WordPress SSO check)
   await initializeAuthPlugins();
   
   // Setup New Sidebar System
@@ -706,26 +599,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const loggedIn = await authManager.isLoggedIn();
     if (!loggedIn) {
       alert('Bitte zuerst einloggen.');
-      return;
-    }
-    
-    // Check authentication type and validate accordingly
-    try {
-      const wpStatus = await wpSSO.checkSSO();
-      if (wpStatus && wpSSO.isAuthenticated) {
-        // WordPress SSO is active - no need to check client.signer
-        console.log('[WP-SSO] New event via WordPress SSO');
-      } else if (client && client.signer) {
-        // Normal Nostr authentication - validate signer
-        const userPubKey = await client.signer.getPublicKey();
-        console.log('[Nostr] New event via normal auth:', userPubKey);
-      } else {
-        alert('Authentifizierung nicht verfügbar.');
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking authentication:', error);
-      alert('Fehler bei der Authentifizierung.');
       return;
     }
     
