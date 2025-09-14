@@ -101,10 +101,10 @@ export class WordPressPluginAuth extends AuthPluginInterface {
       credentials: 'include',
       body: JSON.stringify({
         title: eventData.title,
-        start: eventData.starts,
-        end: eventData.ends,
+        starts: eventData.starts,  // Fixed: 'starts' instead of 'start'
+        ends: eventData.ends,      // Fixed: 'ends' instead of 'end'
         location: eventData.location || '',
-        description: eventData.content || '',
+        content: eventData.content || '',  // Fixed: 'content' instead of 'description'
         d: eventData.d || `wp-event-${Date.now()}`
       })
     });

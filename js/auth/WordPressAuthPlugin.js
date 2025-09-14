@@ -56,19 +56,14 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   async isLoggedIn() {
     const session = await this.getSession();
-    const isLoggedIn = session !== null;
-    console.log('[WordPressAuth] isLoggedIn check:', isLoggedIn, session ? `user: ${session.user.username}` : 'no session');
-    return isLoggedIn;
+    return session !== null;
   }
 
   async getIdentity() {
     const session = await this.getSession();
     if (!session) {
-      console.log('[WordPressAuth] getIdentity: No session found');
       return null;
     }
-
-    console.log('[WordPressAuth] getIdentity: Session found', session);
 
     // Handle different session structures
     const user = session.user || session.wp_user;
@@ -99,7 +94,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }
     };
 
-    console.log('[WordPressAuth] getIdentity: Returning identity', identity);
     return identity;
   }
 
@@ -187,8 +181,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       throw new Error('Not logged in to WordPress SSO');
     }
 
-    console.log('[WordPressAuth] Creating event via WordPress SSO');
-    
     try {
       // Prepare the event data for WordPress API
       const apiEventData = {
@@ -219,7 +211,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           const sessionData = JSON.parse(storedSession);
           if (sessionData.token && Date.now() / 1000 < sessionData.expires) {
             apiUrl += `?sso_token=${encodeURIComponent(sessionData.token)}`;
-            console.log('[WordPressAuth] Using stored SSO token for event creation');
           }
         } catch (e) {
           console.debug('[WordPressAuth] Error parsing stored session');
@@ -235,7 +226,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }
 
       const result = await response.json();
-      console.log('[WordPressAuth] Event created successfully:', result);
 
       return {
         ok: true,
@@ -254,8 +244,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       throw new Error('Not logged in to WordPress SSO');
     }
 
-    console.log('[WordPressAuth] Deleting event via WordPress SSO:', eventId);
-    
     try {
       // Get the WordPress site URL from session
       const wpSiteUrl = this.currentSession.site_url || this.currentSession.wp_site_url;
@@ -276,7 +264,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           const sessionData = JSON.parse(storedSession);
           if (sessionData.token && Date.now() / 1000 < sessionData.expires) {
             apiUrl += `?sso_token=${encodeURIComponent(sessionData.token)}`;
-            console.log('[WordPressAuth] Using stored SSO token for event deletion');
           }
         } catch (e) {
           console.debug('[WordPressAuth] Error parsing stored session');
@@ -292,7 +279,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }
 
       const result = await response.json();
-      console.log('[WordPressAuth] Event deleted successfully:', result);
 
       return {
         ok: true,
@@ -310,8 +296,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       throw new Error('Not logged in to WordPress SSO');
     }
 
-    console.log('[WordPressAuth] Getting events via WordPress SSO');
-    
     try {
       // Get the WordPress site URL from session
       const wpSiteUrl = this.currentSession.site_url || this.currentSession.wp_site_url;
@@ -332,7 +316,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           const sessionData = JSON.parse(storedSession);
           if (sessionData.token && Date.now() / 1000 < sessionData.expires) {
             apiUrl += `?sso_token=${encodeURIComponent(sessionData.token)}`;
-            console.log('[WordPressAuth] Using stored SSO token for getting events');
           }
         } catch (e) {
           console.debug('[WordPressAuth] Error parsing stored session');
@@ -348,11 +331,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }
 
       const result = await response.json();
-      console.log('[WordPressAuth] Events retrieved successfully:', result);
 
       // Convert WordPress events to the format expected by the calendar
       const events = result.events ? Object.values(result.events) : [];
-      console.log('[WordPressAuth] Converted WordPress events:', events);
       return events;
 
     } catch (error) {
@@ -463,7 +444,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           if (sessionData.token && Date.now() / 1000 < sessionData.expires) {
             // Use query parameter instead of header for better WordPress compatibility
             apiUrl += `?sso_token=${encodeURIComponent(sessionData.token)}`;
-            console.log('[WordPressAuth] Using stored SSO token for API call');
           }
         } catch (e) {
           console.debug('[WordPressAuth] Error parsing stored session');
@@ -488,7 +468,6 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           this.currentSession = sessionData;
           localStorage.setItem('wp_sso_session', JSON.stringify(sessionData));
           
-          console.log('[WordPressAuth] Direct WordPress session found for:', data.user.username);
           return sessionData;
         }
       }

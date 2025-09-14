@@ -426,34 +426,26 @@ function renderCurrentView(){
 
 async function refresh(){
   if (els.info) els.info.textContent = 'Lade…';
-  console.log('[DEBUG] Loading events...');
   let events = [];
   try {
     // Load events from Nostr relays
     events = await client.fetchEvents({ sinceDays: 1000 });
-    console.log(`[DEBUG] Loaded ${events.length} events from Nostr relays`);
     
-    // Also load WordPress events if user is logged in via WordPress SSO
+    // Load WordPress events if authenticated via WordPress SSO
     const activePlugin = await authManager.getActivePlugin();
-    console.log('[DEBUG] Active plugin:', activePlugin ? activePlugin.name : 'none');
     if (activePlugin && activePlugin.name === 'wordpress' && typeof activePlugin.getEvents === 'function') {
       try {
-        console.log('[DEBUG] Loading WordPress events...');
         const wpEvents = await activePlugin.getEvents();
-        console.log(`[DEBUG] Loaded ${wpEvents.length} events from WordPress`);
         events = events.concat(wpEvents);
       } catch (wpErr) {
-        console.warn('[DEBUG] Failed to load WordPress events:', wpErr);
+        console.warn('[App] Failed to load WordPress events:', wpErr);
       }
-    } else if (activePlugin) {
-      console.log('[DEBUG] Active plugin does not support getEvents or is not WordPress');
     }
     
   } catch (err) {
     console.error('refresh failed:', err);
     if (els.info) els.info.textContent = 'Fehler beim Laden.';
   }
-  console.log(`[DEBUG] Total loaded ${events.length} events`);
   updateData(events);
 }
 
@@ -494,13 +486,12 @@ function showNotification(message, type = 'info') {
 }
 
 function updateData(events) {
-  console.log('[DEBUG] updateData called with', events.length, 'events:', events);
   state.events = events;
   buildMonthOptions(els.monthSelect, events);
   applyFilters();
 }
 
-// Initialize Auth Plugin System
+// Initialize Authentication Plugin System
 async function initializeAuthPlugins() {
   try {
     console.log('[Auth] Initializing auth plugin system...');
@@ -509,7 +500,7 @@ async function initializeAuthPlugins() {
     const nostrPlugin = new NostrAuthPlugin(client);
     authRegistry.register('nostr', nostrPlugin);
     
-    // Register WordPress Auth Plugin (SSO authentication)
+    // Register WordPress Auth Plugin (WordPress SSO authentication)
     const wpPlugin = new WordPressAuthPlugin({
       wpSiteUrl: 'https://test1.rpi-virtuell.de'
     });
@@ -646,10 +637,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     try{
-      // Use AuthManager for event creation
-      console.log('[App] Creating event via AuthManager...');
+      // Create event using the active authentication plugin
       const result = await authManager.createEvent(data);
-      console.log('[App] Event created:', result);
       
       els.modal.close();
       await refresh();
