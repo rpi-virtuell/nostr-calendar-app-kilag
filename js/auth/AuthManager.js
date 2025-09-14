@@ -48,7 +48,7 @@ export class AuthManager {
   /**
    * Setup UI elements and event handlers
    */
-  setupUI(elements, onChange) {
+  async setupUI(elements, onChange) {
     this.uiElements = elements;
     if (onChange) this.changeCallbacks.push(onChange);
 
@@ -68,7 +68,7 @@ export class AuthManager {
       }
     }
 
-    this.updateUI();
+    await this.updateUI();
   }
 
   /**
@@ -180,7 +180,7 @@ export class AuthManager {
    */
   async onAuthChange() {
     await this.refreshActivePlugin();
-    this.updateUI();
+    await this.updateUI();
     
     // Notify callbacks
     for (const callback of this.changeCallbacks) {
@@ -195,9 +195,9 @@ export class AuthManager {
   /**
    * Update UI based on current auth state
    */
-  updateUI() {
+  async updateUI() {
     if (this.currentPlugin) {
-      this.currentPlugin.updateAuthUI(this.uiElements);
+      await this.currentPlugin.updateAuthUI(this.uiElements);
     } else {
       this.updateNoAuthUI();
     }

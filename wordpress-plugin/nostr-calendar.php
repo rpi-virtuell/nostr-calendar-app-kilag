@@ -52,8 +52,13 @@ class NostrCalendar {
         load_plugin_textdomain('nostr-calendar', false, dirname(plugin_basename(__FILE__)) . '/languages');
 
         // Rewrite rule to serve single-page calendar app at /nostr-calendar
+        add_rewrite_rule('^nostr-calendar/(.*)$', 'index.php?nostr_calendar=1&nostr_calendar_path=$matches[1]', 'top');
         add_rewrite_rule('^nostr-calendar/?$', 'index.php?nostr_calendar=1', 'top');
-        add_filter('query_vars', function($vars) { $vars[] = 'nostr_calendar'; return $vars; });
+        add_filter('query_vars', function($vars) { 
+            $vars[] = 'nostr_calendar'; 
+            $vars[] = 'nostr_calendar_path'; 
+            return $vars; 
+        });
         add_action('template_redirect', [$this, 'serve_calendar_page']);
     }
     
@@ -247,12 +252,88 @@ class NostrCalendar {
      */
     public function serve_calendar_page() {
         if (get_query_var('nostr_calendar')) {
-            // candidate locations for the frontend index.html inside plugin
+            $path = get_query_var('nostr_calendar_path');
+            
+            // If there's a specific file path requested
+            if ($path) {
+                // Clean the path to prevent directory traversal
+                $path = ltrim($path, '/');
+                $path = str_replace(['../', './'], '', $path);
+                
+                // Define allowed files and their locations
+                $file_candidates = [
+                    'wp-sso.html' => [
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/wp-sso.html',
+                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/wp-sso.html'  // Root of nostr-calendar-app
+                    ],
+                    'index.html' => [
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'index.html',
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html',
+                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/index.html'  // Root of nostr-calendar-app
+                    ]
+                ];
+                
+                // Check if the requested file is in our allowed list
+                if (isset($file_candidates[$path])) {
+                    foreach ($file_candidates[$path] as $file) {
+                        if (file_exists($file)) {
+                            // Determine content type
+                            $content_type = 'text/html; charset=utf-8';
+                            if (pathinfo($path, PATHINFO_EXTENSION) === 'css') {
+                                $content_type = 'text/css';
+                            } elseif (pathinfo($path, PATHINFO_EXTENSION) === 'js') {
+                                $content_type = 'application/javascript';
+                            }
+                            
+                            header('Content-Type: ' . $content_type);
+                            readfile($file);
+                            exit;
+                        }
+                    }
+                    
+                    // File not found
+                    status_header(404);
+                    echo '<h1>File Not Found</h1><p>' . esc_html($path) . ' not found in plugin folder.</p>';
+                    exit;
+                }
+                
+                // For any other files, try to serve them from the html directory
+                $generic_file = NOSTR_CALENDAR_PLUGIN_DIR . 'html/' . $path;
+                if (file_exists($generic_file) && is_file($generic_file)) {
+                    // Basic security check - only allow certain file types
+                    $allowed_extensions = ['html', 'css', 'js', 'json', 'txt'];
+                    $extension = pathinfo($path, PATHINFO_EXTENSION);
+                    
+                    if (in_array($extension, $allowed_extensions)) {
+                        $content_types = [
+                            'html' => 'text/html; charset=utf-8',
+                            'css' => 'text/css',
+                            'js' => 'application/javascript',
+                            'json' => 'application/json',
+                            'txt' => 'text/plain'
+                        ];
+                        
+                        header('Content-Type: ' . ($content_types[$extension] ?? 'text/plain'));
+                        readfile($generic_file);
+                        exit;
+                    }
+                }
+                
+                // File not found or not allowed
+                status_header(404);
+                echo '<h1>Not Found</h1><p>The requested file was not found.</p>';
+                exit;
+            }
+            
+            // No specific path - serve main index.html
             $candidates = [
                 NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
                 NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',
                 NOSTR_CALENDAR_PLUGIN_DIR . 'index.html',
-                NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html'
+                NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html',
+                dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/index.html'  // Root of nostr-calendar-app
             ];
 
             foreach ($candidates as $file) {

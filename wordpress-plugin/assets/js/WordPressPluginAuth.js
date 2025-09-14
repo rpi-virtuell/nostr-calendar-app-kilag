@@ -38,6 +38,7 @@ export class WordPressPluginAuth extends AuthPluginInterface {
 
     return {
       pubkey: session.calendar_identity.pubkey,
+      user: session.wp_user, // Add user property for consistency
       wpUser: session.wp_user,
       calendarIdentity: session.calendar_identity,
       displayName: session.wp_user.display_name || session.wp_user.username,
@@ -142,22 +143,22 @@ export class WordPressPluginAuth extends AuthPluginInterface {
     return result;
   }
 
-  updateAuthUI(elements) {
+  async updateAuthUI(elements) {
     const { whoami, btnLogin, btnLogout, btnNew } = elements;
     
     if (this.currentSession) {
       // Show WordPress user info
       if (whoami) {
-        const wpUser = this.currentSession.wp_user;
-        const identity = this.currentSession.calendar_identity;
-        
-        whoami.innerHTML = `
-          <div style="text-align: left;">
-            <div><strong>📅 Calendar Identity:</strong> ${identity.name}</div>
-            <div style="font-size: 0.85em; color: #666;">WordPress User: ${wpUser.display_name || wpUser.username}</div>
-            <div style="font-size: 0.75em; color: #999;">${identity.pubkey.slice(0, 16)}...</div>
-          </div>
-        `;
+        const identity = await this.getIdentity();
+        if (identity) {
+          whoami.innerHTML = `
+            <div style="text-align: left;">
+              <div><strong>📅 Calendar Identity:</strong> ${identity.displayName}</div>
+              <div style="font-size: 0.85em; color: #666;">WordPress User: ${identity.user.display_name || identity.user.username}</div>
+              <div style="font-size: 0.75em; color: #999;">${identity.pubkey.slice(0, 16)}...</div>
+            </div>
+          `;
+        }
       }
       
       // Update sidebar auth status

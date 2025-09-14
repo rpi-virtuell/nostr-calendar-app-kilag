@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await authManager.initialize();
   
   // Setup UI with auth manager
-  authManager.setupUI({
+  await authManager.setupUI({
     whoami: els.whoami,
     btnLogin: els.btnLogin,
     btnLogout: els.btnLogout,
