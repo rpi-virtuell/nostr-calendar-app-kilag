@@ -93,8 +93,8 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       pubkey: calendarIdentity?.pubkey || await this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
       user: user,
       wpUser: user, // backwards compatibility
-  calendarIdentity: calendarIdentity || {
-  pubkey: await this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
+      calendarIdentity: calendarIdentity || {
+      pubkey: await this.generateDeterministicPubkey(user.id, session.site_url || session.wp_site_url),
         name: user.display_name || user.username,
         about: `WordPress user from ${session.site_url || session.wp_site_url}`,
         nip05: `${user.username}@${new URL(session.site_url || session.wp_site_url).hostname}`
