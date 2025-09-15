@@ -528,11 +528,13 @@ class NostrCalendarSSO {
         }
 
         $plugin_dir = plugin_dir_url(__FILE__);
+
+        // Admin JS (independent; generator checks window.NostrTools on demand)
         wp_enqueue_script(
             'nostr-delegation-admin',
             $plugin_dir . 'assets/js/nostr-delegation-admin.js',
             array('jquery'),
-            '1.0.0',
+            '1.1.3',
             true
         );
 
@@ -585,20 +587,25 @@ class NostrCalendarSSO {
         <div class="wrap">
             <h1>Nostr Calendar SSO Integration</h1>
 
+            <!-- Inline module to import nostr-tools via ESM and expose as window.NostrTools -->
+            <script type="module">
+              try {
+                if (!window.NostrTools) {
+                  const NT = await import('https://esm.sh/nostr-tools@2.8.1');
+                  window.NostrTools = NT;
+                  window.dispatchEvent(new CustomEvent('nostr-tools-ready', { detail: { version: '2.8.1' } }));
+                  console.log('[delegation-admin] nostr-tools loaded via inline ESM');
+                }
+              } catch (e) {
+                console.warn('[delegation-admin] nostr-tools inline import failed', e);
+              }
+            </script>
+
             <!-- Delegation (prominent) -->
             <div style="margin:12px 0; padding:12px; border:1px solid #e5e5e5; background:#fafafa;">
                 <h2 style="margin-top:0;">Delegation für dieses Blog</h2>
-                <p class="description">Erzeuge die Delegation extern (z. B. auf <a href="https://nostrtool.com/" target="_blank" rel="noopener">nostrtool.com</a>), kopiere den Delegation-Tag und füge ihn hier ein. Das Plugin validiert das Tag und speichert nur den Delegation-Blob (kein nsec).</p>
-                <label for="delegation_blob"><strong>Delegation (JSON array)</strong></label><br/>
-                <textarea id="delegation_blob" rows="6" cols="80" style="width:100%;" placeholder="['delegation','<sig>','created_at>...','<delegator_pub>']"><?php echo esc_textarea($delegation_raw); ?></textarea>
-                <p style="margin-top:8px;"><strong>Oder</strong> lade eine Datei mit dem Delegation-Tag hoch:</p>
-                <input type="file" id="delegation_file" accept=".txt,.json" />
-                <p style="margin-top:8px;">
-                    <button id="validate-delegation" class="button">Validate Delegation</button>
-                    <button id="save-delegation" class="button button-primary" disabled>Save Delegation</button>
-                    <button id="remove-delegation" class="button">Remove Delegation</button>
-                </p>
-                <div id="delegation-validation-result" style="margin-top:12px;"></div>
+                
+                
 
                 <?php if (is_array($stored_delegation) && !empty($stored_delegation['blob'])):
                     // Parse stored delegation for display
@@ -695,8 +702,74 @@ class NostrCalendarSSO {
                         echo '<p style="color:#cc0000; margin-top:10px;">Gespeicherter Delegation‑Eintrag ist nicht im erwarteten Format.</p>';
                     }
                 endif; ?>
+                <div style="display:none;">
+                    <p class="description">Erzeuge die Delegation extern (z. B. auf <a href="https://nostrtool.com/" target="_blank" rel="noopener">nostrtool.com</a>), kopiere den Delegation-Tag und füge ihn hier ein. Das Plugin validiert das Tag und speichert nur den Delegation-Blob (kein nsec).</p>
+                    <label for="delegation_blob"><strong>Delegation (JSON array)</strong></label><br/>
+                    <textarea id="delegation_blob" rows="6" cols="80" style="width:100%;" placeholder="['delegation','<sig>','created_at>...','<delegator_pub>']"><?php echo esc_textarea($delegation_raw); ?></textarea>
+                    <p style="margin-top:8px;"><strong>Oder</strong> lade eine Datei mit dem Delegation-Tag hoch:</p>
+                    <input type="file" id="delegation_file" accept=".txt,.json" />
+                    
+                </div>
+                <div id="delegation-validation-result" style="margin-top:12px;"></div>
+                <p style="margin-top:8px;">
+                        <!-- <button id="validate-delegation" class="button">Validate Delegation</button> -->
+                        <button id="save-delegation" class="button button-primary" disabled>Save Delegation</button>
+                        <button id="remove-delegation" class="button">Remove Delegation</button>
+                </p>
             </div>
-
+ 
+            <!-- Generator: In‑Browser NIP-26 Delegation Creator -->
+            <div style="margin:16px 0; padding:12px; border:1px solid #e5e5e5; background:#fefefe;">
+                <h2 style="margin-top:0;">Delegation erzeugen (im Browser)</h2>
+                <p class="description">
+                    Erzeuge einen signierten Delegation‑Tag. Der Prozess läuft sicher und lokal nur in deinem Browser. Der nsec wird nicht hochgeladen oder gespeichert.
+                </p>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">Delegator nsec (privater Schlüssel)</th>
+                        <td>
+                            <input type="password" id="gen_delegator_nsec" class="regular-text" placeholder="nsec1..." autocomplete="off" />
+                            <button type="button" class="button" id="gen_btn_new_nsec">Neuen Schlüssel erzeugen</button>
+                            <p class="description">Optional einen vorhandenen nsec einfügen oder einen neuen erzeugen.</p>
+                            <div id="gen_delegator_info" style="margin-top:6px; font-size:12px; color:#333;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Delegatee Pubkey (hex)</th>
+                        <td>
+                            <input type="text" id="gen_delegatee_pub" class="regular-text" placeholder="64‑hex pubkey des Delegatee (Server/Bot)" />
+                            <button type="button" class="button" id="gen_btn_delegatee_new">Delegatee-Schlüssel erzeugen</button>
+                            <p class="description">Pubkey (hex) des Accounts, der Events im Auftrag veröffentlichen soll. Du kannst hier ein neues Schlüsselpaar erzeugen. Bewahre den zugehörigen privaten Schlüssel (nsec) sicher auf; er wird NICHT gespeichert.</p>
+                            <div id="gen_delegatee_info" style="margin-top:6px; font-size:12px; color:#333;"></div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Erlaubte Kinds</th>
+                        <td>
+                            <input type="text" id="gen_kinds" class="regular-text" placeholder="z.B. 1,31923" />
+                            <p class="description">Kommagetrennte Kind‑Nummern. Leer lassen für keine Einschränkung.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Zeitfenster</th>
+                        <td>
+                            <label>created_at > <input type="number" id="gen_since" style="width:160px;" placeholder="UNIX timestamp (since)"></label>
+                            &nbsp;&nbsp;
+                            <label>created_at < <input type="number" id="gen_until" style="width:160px;" placeholder="UNIX timestamp (until)"></label>
+                            <button type="button" class="button" id="gen_btn_fill_defaults">+3 Monate</button>
+                            <p class="description">UNIX‑Zeitstempel in Sekunden. Button setzt sinnvolle Standardwerte + 3 Monate ein. <span id="gen_until_info"></span></p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    <button type="button" class="button button-primary" id="gen_btn_create">Delegation erzeugen</button>
+                    <button type="button" class="button" id="gen_btn_copy_to_textarea">In Textfeld übernehmen</button>
+                </p>
+                <div id="gen_result" style="margin-top:8px; font-family:monospace; white-space:pre-wrap;"></div>
+            </div>
+            
+ 
+            <!-- Main Settings Form -->
             <form method="post">
                 <table class="form-table">
                     <tr>
