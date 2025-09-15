@@ -152,7 +152,7 @@
           authenticated_at: Date.now()
         };
 
-        // Include calendar_pubkey from token payload if present
+        // Include calendar_pubkey from token payload if present (initial session identity)
         if (payload.calendar_pubkey) {
           sessionData.calendar_identity = {
             pubkey: payload.calendar_pubkey,
@@ -161,6 +161,44 @@
           };
         }
 
+        // If blog_pubkey present in token (shared/blog identity), mark session as shared and store key
+        if (payload.blog_pubkey) {
+          sessionData.shared_identity = true;
+          sessionData.blog_pubkey = payload.blog_pubkey;
+          // Prefer blog_pubkey as active calendar pubkey if not yet set
+          if (!sessionData.calendar_identity) {
+            sessionData.calendar_identity = {
+              pubkey: payload.blog_pubkey,
+              name: payload.wp_display_name || payload.wp_username,
+              about: `Blog identity from ${payload.wp_site_url}`
+            };
+          }
+        }
+
+        // Try to enrich session from server (/me), including delegation info
+        try {
+          const baseUrl = (payload.wp_site_url || '').replace(/\/+$/, '');
+          const meUrl = baseUrl + '/wp-json/nostr-calendar/v1/me?sso_token=' + encodeURIComponent(token);
+          const meResp = await fetch(meUrl, { credentials: 'omit' });
+          if (meResp.ok) {
+            const me = await meResp.json();
+            if (me && me.success && me.calendar_identity) {
+              // Overwrite/augment calendar_identity with server-authoritative data
+              sessionData.calendar_identity = Object.assign({}, sessionData.calendar_identity || {}, me.calendar_identity);
+
+              // If delegation exists, treat as shared/blog-wide identity and use delegator pubkey as blog_pubkey fallback
+              if (me.calendar_identity.delegation) {
+                sessionData.shared_identity = true;
+                if (!sessionData.blog_pubkey && me.calendar_identity.delegation.delegator) {
+                  sessionData.blog_pubkey = me.calendar_identity.delegation.delegator;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('WP SSO: /me enrichment failed', e);
+        }
+ 
         localStorage.setItem('wp_sso_session', JSON.stringify(sessionData));
         
         showSuccess(`✅ Erfolgreich als ${payload.wp_display_name || payload.wp_username} angemeldet!`);

@@ -23,6 +23,30 @@ class NostrSimpleCrypto {
             'public_key' => $public_key
         ];
     }
+
+    /**
+     * Derive a public key from a private key using the simplified fallback algorithm
+     * Keeps compatibility with generate_key_pair() deterministic public derivation
+     */
+    public static function private_to_public($private_key) {
+        if (!is_string($private_key)) return null;
+        // If the provided private key looks like a WIF (base64), try to decode hex
+        if (!ctype_xdigit($private_key) && base64_decode($private_key, true) !== false) {
+            // attempt to convert from base64-encoded binary to hex
+            $bin = base64_decode($private_key);
+            $hex = bin2hex($bin);
+            if (ctype_xdigit($hex) && strlen($hex) === 64) {
+                $private_key = $hex;
+            }
+        }
+
+        if (!self::validate_key($private_key)) {
+            // Not a valid 32-byte hex private key for our fallback
+            return null;
+        }
+
+        return hash('sha256', $private_key . 'nostr_pubkey_salt');
+    }
     
     /**
      * Create event ID (SHA256 hash of serialized event)

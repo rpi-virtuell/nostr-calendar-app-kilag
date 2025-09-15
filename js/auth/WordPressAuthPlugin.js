@@ -27,9 +27,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           try {
             const session = JSON.parse(sessionData);
             if (Date.now() / 1000 < session.expires) {
-              // Normalize calendar_identity.pubkey to match server algorithm
+              // Normalize calendar_identity.pubkey to match server algorithm if not using a shared blog identity
               try {
-                if (session.user && session.user.id) {
+                if (session.user && session.user.id && !session.shared_identity) {
                   const siteUrl = session.site_url || session.wp_site_url || this.wpSiteUrl;
                   const expectedPub = await this.generateDeterministicPubkey(session.user.id, siteUrl);
                   if (!session.calendar_identity) session.calendar_identity = {};
@@ -360,10 +360,12 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
   async updateAuthUI(elements) {
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = elements;
     
+    
     if (this.currentSession) {
-      // Show WordPress user info
+      // Show WordPress user info 
       if (whoami) {
         const identity = await this.getIdentity();
+        console.debug('[WordPressAuth] Updating UI for logged in user:', identity);
         if (identity) {
           whoami.innerHTML = `
             <div style="text-align: left;">

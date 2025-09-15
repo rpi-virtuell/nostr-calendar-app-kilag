@@ -23,17 +23,24 @@ class NostrCalendarSSO {
         add_action('wp_login', array($this, 'on_wp_login'), 10, 2);
         add_action('wp_logout', array($this, 'on_wp_logout'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
+        // Admin-specific script enqueue for delegation UI
+        add_action('admin_enqueue_scripts', array($this, 'admin_enqueue_scripts'));
         add_shortcode('nostr_calendar', array($this, 'calendar_shortcode'));
         
         // AJAX endpoints
         add_action('wp_ajax_get_nostr_token', array($this, 'ajax_get_nostr_token'));
         add_action('wp_ajax_nopriv_get_nostr_token', array($this, 'ajax_get_nostr_token_public'));
+        // Delegation management AJAX endpoints (admin only)
+        add_action('wp_ajax_save_nostr_delegation', array($this, 'ajax_save_nostr_delegation'));
+        add_action('wp_ajax_remove_nostr_delegation', array($this, 'ajax_remove_nostr_delegation'));
         
         // REST API endpoints for Nostr Calendar App
         add_action('rest_api_init', array($this, 'register_rest_routes'));
         
         // Admin menu
         add_action('admin_menu', array($this, 'admin_menu'));
+
+        // nsec upload removed - use NIP-26 delegations instead
     }
     
     public function init() {
@@ -50,19 +57,45 @@ class NostrCalendarSSO {
         $timestamp = time();
         $expires = $timestamp + (2 * 3600); // 2 Stunden gültig
         
+        // Base payload
         $payload = array(
             'wp_user_id' => $user_id,
             'wp_username' => $user->user_login,
             'wp_email' => $user->user_email,
             'wp_display_name' => $user->display_name,
             'wp_roles' => $user->roles,
-            // Add deterministic calendar pubkey to payload for client consistency
-            'calendar_pubkey' => $this->generate_deterministic_pubkey($user_id),
             'timestamp' => $timestamp,
             'expires' => $expires,
             'wp_site_url' => site_url()
         );
         
+        // If a shared blog nsec exists, derive its pubkey and include it in the token payload
+        $shared = get_option('nostr_calendar_shared_nsec', null);
+        if ($shared && !empty($shared['ciphertext'])) {
+            $nsec_plain = $this->decrypt_stored_nsec($shared['ciphertext']);
+            if ($nsec_plain) {
+                $blog_pub = null;
+                // If NostrSimpleCrypto helper available, use it to derive public key
+                if (class_exists('NostrSimpleCrypto') && method_exists('NostrSimpleCrypto', 'private_to_public')) {
+                    try {
+                        $blog_pub = NostrSimpleCrypto::private_to_public($nsec_plain);
+                    } catch (Exception $e) {
+                        $blog_pub = null;
+                    }
+                }
+                // Fallback derivation if not available
+                if (!$blog_pub) {
+                    $blog_pub = hash('sha256', 'nostr-blog-' . $nsec_plain . '-' . site_url());
+                }
+    
+                $payload['calendar_pubkey'] = $blog_pub;
+                $payload['blog_pubkey'] = $blog_pub;
+            }
+        } else {
+            // Default deterministic pubkey per user for backwards compatibility
+            $payload['calendar_pubkey'] = $this->generate_deterministic_pubkey($user_id);
+        }
+    
         // Token mit HMAC signieren
         $token_data = base64_encode(json_encode($payload));
         $signature = hash_hmac('sha256', $token_data, $this->shared_secret);
@@ -196,7 +229,33 @@ class NostrCalendarSSO {
         $meta_pub = get_user_meta($user_id, 'nostr_calendar_pubkey', true);
         $pubkey = $meta_pub ? $meta_pub : $this->generate_deterministic_pubkey($user_id);
 
-        return array(
+        // Check if a delegation is stored for this blog and include it in the response
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        $stored_delegation = get_option($option_key, null);
+        $delegation = null;
+        if (is_array($stored_delegation) && !empty($stored_delegation['blob'])) {
+            $raw = $stored_delegation['blob'];
+            $arr = json_decode($raw, true);
+            if (!is_array($arr)) {
+                // fallback parse single quotes
+                $arr = json_decode(str_replace("'", '"', $raw), true);
+            }
+            if (is_array($arr) && count($arr) >= 4 && $arr[0] === 'delegation') {
+                $delegation = array(
+                    'raw' => $raw,
+                    'sig' => $arr[1],
+                    'conds' => $arr[2],
+                    'delegator' => $arr[3],
+                    'saved_by' => $stored_delegation['saved_by'] ?? null,
+                    'saved_at' => $stored_delegation['saved_at'] ?? null
+                );
+                // If delegation exists, prefer delegator as calendar_identity.pubkey to show the authority who delegated
+                $pubkey = $delegation['delegator'];
+            }
+        }
+ 
+        $response = array(
             'success' => true,
             'user' => array(
                 'id' => $user_id,
@@ -213,6 +272,12 @@ class NostrCalendarSSO {
                 'nip05' => $user->user_login . '@' . parse_url(site_url(), PHP_URL_HOST)
             )
         );
+
+        if ($delegation) {
+            $response['calendar_identity']['delegation'] = $delegation;
+        }
+
+        return $response;
     }
     
     /**
@@ -272,7 +337,14 @@ class NostrCalendarSSO {
                 $debug_info['token_expired'] = time() > $payload['expires'] ? 'Yes' : 'No';
             }
         }
-        
+
+        // Include stored delegation option for current blog (helpful for debugging admin save flow)
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        $stored_delegation = get_option($option_key, null);
+        $debug_info['stored_delegation_option_key'] = $option_key;
+        $debug_info['stored_delegation'] = $stored_delegation;
+
         return $debug_info;
     }
 
@@ -444,6 +516,34 @@ class NostrCalendarSSO {
             'calendar_url' => $this->calendar_app_url
         ));
     }
+
+    /**
+     * Admin-specific scripts for the plugin settings page (delegation UI)
+     */
+    public function admin_enqueue_scripts($hook_suffix) {
+        // Only load on our plugin options page
+        // The options page slug used in admin_menu is 'nostr-calendar-sso'
+        if ($hook_suffix !== 'settings_page_nostr-calendar-sso') {
+            return;
+        }
+
+        $plugin_dir = plugin_dir_url(__FILE__);
+        wp_enqueue_script(
+            'nostr-delegation-admin',
+            $plugin_dir . 'assets/js/nostr-delegation-admin.js',
+            array('jquery'),
+            '1.0.0',
+            true
+        );
+
+        // Localize data for AJAX and nonce for delegation actions
+        wp_localize_script('nostr-delegation-admin', 'nostrDelegationAdmin', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'save_action' => 'save_nostr_delegation',
+            'remove_action' => 'remove_nostr_delegation',
+            'nonce' => wp_create_nonce('nostr_calendar_delegation')
+        ));
+    }
     
     /**
      * Admin Menu
@@ -472,10 +572,131 @@ class NostrCalendarSSO {
         
         $current_url = get_option('nostr_calendar_app_url', $this->calendar_app_url);
         $auto_redirect = get_option('nostr_calendar_auto_redirect', 0);
+
+        // Load existing delegation blob for this blog (if any) so the textarea can show it
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        $stored_delegation = get_option($option_key, null);
+        $delegation_raw = '';
+        if (is_array($stored_delegation) && !empty($stored_delegation['blob'])) {
+            $delegation_raw = $stored_delegation['blob'];
+        }
         ?>
         <div class="wrap">
             <h1>Nostr Calendar SSO Integration</h1>
-            
+
+            <!-- Delegation (prominent) -->
+            <div style="margin:12px 0; padding:12px; border:1px solid #e5e5e5; background:#fafafa;">
+                <h2 style="margin-top:0;">Delegation für dieses Blog</h2>
+                <p class="description">Erzeuge die Delegation extern (z. B. auf <a href="https://nostrtool.com/" target="_blank" rel="noopener">nostrtool.com</a>), kopiere den Delegation-Tag und füge ihn hier ein. Das Plugin validiert das Tag und speichert nur den Delegation-Blob (kein nsec).</p>
+                <label for="delegation_blob"><strong>Delegation (JSON array)</strong></label><br/>
+                <textarea id="delegation_blob" rows="6" cols="80" style="width:100%;" placeholder="['delegation','<sig>','created_at>...','<delegator_pub>']"><?php echo esc_textarea($delegation_raw); ?></textarea>
+                <p style="margin-top:8px;"><strong>Oder</strong> lade eine Datei mit dem Delegation-Tag hoch:</p>
+                <input type="file" id="delegation_file" accept=".txt,.json" />
+                <p style="margin-top:8px;">
+                    <button id="validate-delegation" class="button">Validate Delegation</button>
+                    <button id="save-delegation" class="button button-primary" disabled>Save Delegation</button>
+                    <button id="remove-delegation" class="button">Remove Delegation</button>
+                </p>
+                <div id="delegation-validation-result" style="margin-top:12px;"></div>
+
+                <?php if (is_array($stored_delegation) && !empty($stored_delegation['blob'])):
+                    // Parse stored delegation for display
+                    $raw = $stored_delegation['blob'];
+                    $arr = json_decode($raw, true);
+                    if (!is_array($arr)) { $arr = json_decode(str_replace("'", '"', $raw), true); }
+                    $delegation_display = null;
+                    if (is_array($arr) && count($arr) >= 4 && $arr[0] === 'delegation') {
+                        $sig = $arr[1];
+                        $conds = $arr[2];
+                        $delegator = $arr[3];
+
+                        // Parse conditions for human readable output
+                        $conds_str = is_string($conds) ? $conds : '';
+                        $parts = array_filter(array_map('trim', explode('&', $conds_str)));
+                        $min_created = null; $max_created = null; $allowed_kinds = null;
+                        foreach ($parts as $p) {
+                            if (strpos($p, 'created_at>') === 0) { $min_created = (int)substr($p, strlen('created_at>')); }
+                            elseif (strpos($p, 'created_at<') === 0) { $max_created = (int)substr($p, strlen('created_at<')); }
+                            elseif (strpos($p, 'kind=') === 0) {
+                                $vals = substr($p, strlen('kind='));
+                                $allowed_kinds = array_filter(array_map('intval', explode(',', $vals)));
+                            } elseif (strpos($p, 'kinds=') === 0) {
+                                $vals = substr($p, strlen('kinds='));
+                                $allowed_kinds = array_filter(array_map('intval', explode(',', $vals)));
+                            }
+                        }
+                        $saved_by_user = !empty($stored_delegation['saved_by']) ? get_user_by('id', (int)$stored_delegation['saved_by']) : null;
+                        $saved_by_name = $saved_by_user ? ($saved_by_user->display_name ?: $saved_by_user->user_login) : 'unknown';
+                        $saved_at = !empty($stored_delegation['saved_at']) ? date('Y-m-d H:i:s', (int)$stored_delegation['saved_at']) : '';
+
+                        // Build external lookup links for "whoami" of delegator (no local relay query)
+                        $hex = $delegator;
+                        $link_nostr_band = 'https://nostr.band/?q=' . urlencode($hex);
+                        $link_highlighter = 'https://njump.me/' . urlencode($hex); // accepts hex and resolves to profile
+                        $link_iris = 'https://iris.to/' . urlencode($hex);
+
+                        ?>
+                        <div style="margin-top:16px; padding:12px; border:1px dashed #ccc; background:#fff;">
+                            <h3 style="margin-top:0;">Gespeicherte Delegation (aktiver Status)</h3>
+                            <table class="widefat striped" style="margin-top:8px;">
+                                <tbody>
+                                    <tr>
+                                        <th style="width:220px;">Delegator Pubkey (hex)</th>
+                                        <td>
+                                            <code><?php echo esc_html($hex); ?></code>
+                                            <div style="margin-top:6px; font-size:12px;">
+                                                Whoami/Profil anzeigen:
+                                                <a href="<?php echo esc_url($link_nostr_band); ?>" target="_blank" rel="noopener">nostr.band</a> ·
+                                                <a href="<?php echo esc_url($link_highlighter); ?>" target="_blank" rel="noopener">njump</a> ·
+                                                <a href="<?php echo esc_url($link_iris); ?>" target="_blank" rel="noopener">iris.to</a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Signatur</th>
+                                        <td><code><?php echo esc_html($sig); ?></code></td>
+                                    </tr>
+                                    <tr>
+                                        <th>Bedingungen (roh)</th>
+                                        <td><code><?php echo esc_html($conds_str); ?></code></td>
+                                    </tr>
+                                    <tr>
+                                        <th>Bedingungen (interpretiert)</th>
+                                        <td>
+                                            <ul style="margin:0; padding-left:18px;">
+                                                <?php if ($min_created !== null): ?>
+                                                    <li>created_at > <?php echo (int)$min_created; ?> (<?php echo esc_html(date('Y-m-d H:i:s', (int)$min_created)); ?>)</li>
+                                                <?php endif; ?>
+                                                <?php if ($max_created !== null): ?>
+                                                    <li>created_at < <?php echo (int)$max_created; ?> (<?php echo esc_html(date('Y-m-d H:i:s', (int)$max_created)); ?>)</li>
+                                                <?php endif; ?>
+                                                <?php if (is_array($allowed_kinds)): ?>
+                                                    <li>erlaubte kinds: <?php echo esc_html(implode(', ', $allowed_kinds)); ?></li>
+                                                <?php else: ?>
+                                                    <li>erlaubte kinds: keine Einschränkung angegeben</li>
+                                                <?php endif; ?>
+                                            </ul>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Gespeichert</th>
+                                        <td>von <strong><?php echo esc_html($saved_by_name); ?></strong> am <?php echo esc_html($saved_at); ?></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <p class="description" style="margin-top:8px;">
+                                Hinweis: Die Bestimmung des "Name/Whoami" des Delegators erfolgt über externe Nostr‑Explorer (Links oben).
+                                Eine direkte Auflösung gegen Relays ist serverseitig derzeit nicht aktiviert.
+                            </p>
+                        </div>
+                        <?php
+                    } else {
+                        echo '<p style="color:#cc0000; margin-top:10px;">Gespeicherter Delegation‑Eintrag ist nicht im erwarteten Format.</p>';
+                    }
+                endif; ?>
+            </div>
+
             <form method="post">
                 <table class="form-table">
                     <tr>
@@ -656,6 +877,155 @@ class NostrCalendarSSO {
         }
         
         return null;
+    }
+
+    /**
+     * AJAX: Save delegation blob for current blog (admin only)
+     */
+    public function ajax_save_nostr_delegation() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json(array('success' => false, 'error' => 'unauthorized'));
+            exit;
+        }
+        check_admin_referer('nostr_calendar_delegation');
+        $raw = isset($_POST['delegation']) ? trim(wp_unslash($_POST['delegation'])) : '';
+        if (empty($raw)) {
+            wp_send_json(array('success' => false, 'error' => 'empty_delegation'));
+            exit;
+        }
+
+        // Basic validation: must be a JSON array with at least 4 elements and first = delegation
+        $ok = false;
+        $parsed = null;
+        try {
+            $arr = json_decode($raw, true);
+            if (!is_array($arr)) {
+                // try PHP-like single quotes fallback
+                $fixed = str_replace("'", '"', $raw);
+                $arr = json_decode($fixed, true);
+            }
+            if (is_array($arr) && count($arr) >= 4 && $arr[0] === 'delegation') {
+                $parsed = array(
+                    'sig' => $arr[1],
+                    'conds' => $arr[2],
+                    'delegator' => $arr[3]
+                );
+                $ok = true;
+            }
+        } catch (Exception $e) {
+            $ok = false;
+        }
+
+        if (!$ok) {
+            wp_send_json(array('success' => false, 'error' => 'invalid_format'));
+            exit;
+        }
+
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        $store = array(
+            'blob' => $raw,
+            'parsed' => $parsed,
+            'saved_by' => get_current_user_id(),
+            'saved_at' => time()
+        );
+        update_option($option_key, $store);
+        wp_send_json(array('success' => true));
+        exit;
+    }
+
+    /**
+     * AJAX: Remove delegation for current blog (admin only)
+     */
+    public function ajax_remove_nostr_delegation() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json(array('success' => false, 'error' => 'unauthorized'));
+            exit;
+        }
+        check_admin_referer('nostr_calendar_delegation');
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        delete_option($option_key);
+        wp_send_json(array('success' => true));
+        exit;
+    }
+
+    /**
+     * Handle uploaded nsec file from admin page
+     */
+    public function handle_nsec_upload() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized', 403);
+        }
+
+        check_admin_referer('nostr_calendar_upload_nsec');
+
+        if (empty($_FILES['nostr_nsec_file']) || $_FILES['nostr_nsec_file']['error'] !== UPLOAD_ERR_OK) {
+            wp_redirect(add_query_arg('nostr_upload', 'error', wp_get_referer()));
+            exit;
+        }
+
+        $content = file_get_contents($_FILES['nostr_nsec_file']['tmp_name']);
+        $content = trim($content);
+
+        // Optional password provided by admin for extra entropy (not required for decryption server-side)
+        $password = sanitize_text_field($_POST['nostr_nsec_password'] ?? '');
+
+        // Derive an encryption key from WP salts + optional password
+        $key_material = AUTH_SALT . '|' . AUTH_KEY . '|' . $password . '|' . site_url();
+        $key = hash('sha256', $key_material, true);
+
+        // Encrypt using openssl
+        $iv = openssl_random_pseudo_bytes(16);
+        $ciphertext = openssl_encrypt($content, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+        $store = base64_encode($iv . $ciphertext);
+
+        update_option('nostr_calendar_shared_nsec', array(
+            'ciphertext' => $store,
+            'uploaded_at' => time()
+        ));
+
+        // Enable shared identity by default when uploaded
+        update_option('nostr_calendar_use_shared_identity', 1);
+
+        wp_redirect(add_query_arg('nostr_upload', 'ok', wp_get_referer()));
+        exit;
+    }
+
+    /**
+     * Decrypt stored nsec blob
+     */
+    private function decrypt_stored_nsec($blob) {
+        try {
+            $data = base64_decode($blob);
+            $iv = substr($data, 0, 16);
+            $ciphertext = substr($data, 16);
+            // Derive same key as during encryption (password optional not stored, so rely on AUTH keys)
+            $key_material = AUTH_SALT . '|' . AUTH_KEY . '|' . '' . '|' . site_url();
+            $key = hash('sha256', $key_material, true);
+            $plain = openssl_decrypt($ciphertext, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+            return $plain ?: null;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get stored blog pubkey (derived)
+     */
+    private function get_stored_blog_pubkey() {
+        $shared = get_option('nostr_calendar_shared_nsec', null);
+        if (!$shared || empty($shared['ciphertext'])) return '';
+        $nsec = $this->decrypt_stored_nsec($shared['ciphertext']);
+        if (!$nsec) return '';
+        if (class_exists('NostrSimpleCrypto') && method_exists('NostrSimpleCrypto', 'private_to_public')) {
+            try {
+                return NostrSimpleCrypto::private_to_public($nsec);
+            } catch (Exception $e) {
+                // fallback
+            }
+        }
+        return hash('sha256', 'nostr-blog-' . $nsec . '-' . site_url());
     }
 }
 
