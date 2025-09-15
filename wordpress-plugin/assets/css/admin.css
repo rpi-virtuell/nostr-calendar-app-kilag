@@ -1,0 +1,266 @@
+/* Admin CSS for Nostr Calendar Unified Plugin */
+
+#nostr-calendar-tabs {
+  margin-top: 20px;
+}
+
+#nostr-calendar-tabs .ui-tabs-nav {
+  background: #f1f1f1;
+  border: 1px solid #ccc;
+  border-radius: 4px 4px 0 0;
+  padding: 0;
+  margin: 0;
+}
+
+#nostr-calendar-tabs .ui-tabs-nav li {
+  list-style: none;
+  float: left;
+  margin: 0;
+  border: none;
+  background: none;
+}
+
+#nostr-calendar-tabs .ui-tabs-nav li a {
+  display: block;
+  padding: 12px 20px;
+  text-decoration: none;
+  color: #333;
+  background: none;
+  border: none;
+  border-right: 1px solid #ddd;
+  transition: all 0.3s ease;
+}
+
+#nostr-calendar-tabs .ui-tabs-nav li a:hover {
+  background: #e8e8e8;
+  color: #0073aa;
+}
+
+#nostr-calendar-tabs .ui-tabs-nav li.ui-tabs-active a {
+  background: #0073aa;
+  color: white;
+  font-weight: bold;
+}
+
+#nostr-calendar-tabs .ui-tabs-panel {
+  border: 1px solid #ccc;
+  border-top: none;
+  background: white;
+  padding: 20px;
+  border-radius: 0 0 4px 4px;
+  min-height: 400px;
+}
+
+.sso-status {
+  background: #f0f8ff;
+  border: 1px solid #0073aa;
+  border-radius: 4px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.sso-status h3 {
+  margin-top: 0;
+  color: #0073aa;
+}
+
+.system-info {
+  margin-top: 20px;
+}
+
+.system-info h3 {
+  color: #333;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 5px;
+}
+
+.system-info table {
+  max-width: 600px;
+  border-collapse: collapse;
+}
+
+.system-info table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.system-info table td:first-child {
+  font-weight: bold;
+  width: 200px;
+}
+
+.notice-warning .crypto-commands {
+  background: #333;
+  color: #0f0;
+  padding: 10px;
+  font-family: monospace;
+  margin: 10px 0;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.notice-warning .crypto-commands p {
+  margin: 5px 0;
+  font-size: 12px;
+}
+
+.tab-content h2 {
+  margin-top: 0;
+  color: #333;
+}
+
+.form-table th {
+  width: 200px;
+  vertical-align: top;
+  padding-top: 15px;
+}
+
+.ui-tabs-nav li:last-child a {
+  border-right: none;
+}
+
+/* Status indicators */
+.status-indicator {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.status-indicator.success {
+  color: #46b450;
+}
+
+.status-indicator.warning {
+  color: #ffb900;
+}
+
+.status-indicator.error {
+  color: #dc3232;
+}
+
+/* Delegation Management */
+.delegation-form-section {
+  background: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.delegations-list-section {
+  margin-top: 30px;
+}
+
+.delegation-item {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  overflow: hidden;
+}
+
+.delegation-header {
+  background: #f7f7f7;
+  border-bottom: 1px solid #ddd;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.delegation-header h4 {
+  margin: 0;
+  color: #333;
+}
+
+.delegation-details {
+  padding: 15px 20px;
+}
+
+.delegation-details p {
+  margin: 8px 0;
+}
+
+.delegation-details code {
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.status.active {
+  color: #46b450;
+  font-weight: bold;
+}
+
+.status.inactive {
+  color: #dc3232;
+  font-weight: bold;
+}
+
+.no-delegations {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 20px;
+}
+
+.delegation-template-section {
+  margin-top: 30px;
+}
+
+#delegation-template {
+  font-family: monospace;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+}
+
+/* SSO Fields */
+.sso-field {
+  transition: all 0.3s ease;
+}
+
+#sso-status-enabled {
+  display: block;
+}
+
+#sso-status-disabled {
+  display: none;
+}
+
+/* Button spacing */
+.button + .button {
+  margin-left: 10px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  #nostr-calendar-tabs .ui-tabs-nav li {
+    float: none;
+    width: 100%;
+  }
+  
+  #nostr-calendar-tabs .ui-tabs-nav li a {
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+  }
+  
+  .system-info table {
+    width: 100%;
+  }
+  
+  .system-info table td:first-child {
+    width: auto;
+  }
+  
+  .delegation-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .delegation-header h4 {
+    text-align: center;
+  }
+}

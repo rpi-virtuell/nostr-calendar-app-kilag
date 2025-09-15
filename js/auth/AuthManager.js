@@ -3,7 +3,6 @@
 
 import { authRegistry } from './AuthPluginInterface.js';
 import { NostrAuthPlugin } from './NostrAuthPlugin.js';
-import { WordPressAuthPlugin } from './WordPressAuthPlugin.js';
 
 export class AuthManager {
   constructor(config = {}) {
@@ -22,12 +21,23 @@ export class AuthManager {
 
     console.log('[AuthManager] Initializing authentication system');
 
-    // Register available auth plugins
+    // Always register Nostr auth plugin
     const nostrPlugin = new NostrAuthPlugin(this.config.nostr || {});
-    const wpPlugin = new WordPressAuthPlugin(this.config.wordpress || {});
-
     authRegistry.register('nostr', nostrPlugin);
-    authRegistry.register('wordpress', wpPlugin);
+
+    // Conditionally load WordPress auth plugin if SSO is available
+    if (this.isWordPressSSoAvailable()) {
+      try {
+        console.log('[AuthManager] WordPress SSO detected, loading WordPress auth plugin');
+        const { WordPressAuthPlugin } = await import('./WordPressAuthPlugin.js');
+        const wpPlugin = new WordPressAuthPlugin(this.config.wordpress || {});
+        authRegistry.register('wordpress', wpPlugin);
+      } catch (error) {
+        console.warn('[AuthManager] Failed to load WordPress auth plugin:', error);
+      }
+    } else {
+      console.log('[AuthManager] WordPress SSO not available, using Nostr-only authentication');
+    }
 
     // Initialize all plugins
     for (const plugin of authRegistry.getAll()) {
@@ -234,6 +244,31 @@ export class AuthManager {
    */
   getAllPlugins() {
     return authRegistry.getAll();
+  }
+
+  /**
+   * Check if WordPress SSO is available
+   */
+  isWordPressSSoAvailable() {
+    // Check if we're running in a WordPress environment
+    if (typeof window !== 'undefined') {
+      // Check for WordPress-specific global variables
+      if (window.nostrCalendarWP && window.nostrCalendarWP.sso && window.nostrCalendarWP.sso.enabled) {
+        return true;
+      }
+      
+      // Check for WordPress SSO configuration
+      if (window.nostrCalendarSSO && window.nostrCalendarSSO.enabled) {
+        return true;
+      }
+      
+      // Check for WordPress REST API availability
+      if (window.nostrCalendarWP && window.nostrCalendarWP.apiUrl) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /**

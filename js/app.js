@@ -16,7 +16,6 @@ import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { AuthManager } from './auth/AuthManager.js';
 import { authRegistry } from './auth/AuthPluginInterface.js';
 import { NostrAuthPlugin } from './auth/NostrAuthPlugin.js';
-import { WordPressAuthPlugin } from './auth/WordPressAuthPlugin.js';
 
 // Initialize Auth Manager
 const authManager = new AuthManager();
@@ -501,13 +500,7 @@ async function initializeAuthPlugins() {
     const nostrPlugin = new NostrAuthPlugin(client);
     authRegistry.register('nostr', nostrPlugin);
     
-    // Register WordPress Auth Plugin (WordPress SSO authentication)
-    const wpPlugin = new WordPressAuthPlugin({
-      wpSiteUrl: 'https://test1.rpi-virtuell.de'
-    });
-    authRegistry.register('wordpress', wpPlugin);
-    
-    // Initialize the AuthManager
+    // Initialize the AuthManager (it will automatically detect and load WordPress plugin if available)
     await authManager.initialize();
     
     console.log('[Auth] Auth plugins registered successfully');
