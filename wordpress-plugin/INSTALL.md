@@ -30,9 +30,6 @@ cp -r wordpress-plugin /path/to/wordpress/wp-content/plugins/nostr-calendar
 
 Das Plugin liefert optional eine Single-Page-App aus dem Plugin-Ordner unter der URL `https://example-wp.com/nostr-calendar` aus. Dazu legen Sie die gebaute `index.html` Ihrer Frontend-App in eines der folgenden Verzeichnisse:
 
-- `wp-content/plugins/nostr-calendar/html/index.html`
-- `wp-content/plugins/nostr-calendar/assets/html/index.html`
-- `wp-content/plugins/nostr-calendar/index.html`
 - `wp-content/plugins/nostr-calendar/assets/index.html`
 
 Nach dem Hochladen der Datei rufen Sie die URL `https://your-site/nostr-calendar` auf. Das Plugin registriert beim Aktivieren eine Rewrite-Rule und liefert die Datei direkt aus. Wenn Sie Probleme mit 404 haben, flushen Sie die Rewrite-Regeln in WordPress (Einstellungen → Permalinks → Änderungen speichern) oder führen Sie:
@@ -93,27 +90,6 @@ Nach der Installation zeigt **Settings → Nostr Calendar** den Produktionsstatu
 - `DELETE /wp-json/nostr-calendar/v1/event/{id}` - Event löschen
 - `GET /wp-json/nostr-calendar/v1/sso-status` - SSO-Status
 
-## 🎯 Migration von Node.js
-
-Wenn Sie vom Node.js Server migrieren möchten:
-
-### 1. Frontend anpassen
-```javascript
-// In app.js ersetzen:
-import { WordPressAuthPlugin } from './auth/WordPressAuthPlugin.js';
-// Mit:
-import { WordPressPluginAuth } from './assets/js/WordPressPluginAuth.js';
-
-// Plugin-Registrierung:
-const wpPlugin = new WordPressPluginAuth();
-authRegistry.register('wordpress', wpPlugin);
-```
-
-### 2. URLs anpassen
-```javascript
-// Alt: http://localhost:8787/wp-calendar/event
-// Neu: /wp-json/nostr-calendar/v1/event
-```
 
 ## 🐛 Troubleshooting
 

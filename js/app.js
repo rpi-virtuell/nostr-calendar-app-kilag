@@ -249,7 +249,7 @@ async function setupAuthButtons() {
   if (authWordPress) {
     authWordPress.addEventListener('click', () => {
       // Redirect to WordPress SSO
-      window.location.href = 'http://localhost:8787/wp-login-redirect';
+      window.location.href = '/wp-login.php?redirect_to=' + encodeURIComponent(window.location.href);
     });
   }
   

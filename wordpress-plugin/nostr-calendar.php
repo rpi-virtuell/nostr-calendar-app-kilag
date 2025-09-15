@@ -263,19 +263,13 @@ class NostrCalendar {
                 // Define allowed files and their locations
                 $file_candidates = [
                     'wp-sso.html' => [
-                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/wp-sso.html',
-                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/wp-sso.html'  // Root of nostr-calendar-app
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'assets/wp-sso.html',
                     ],
                     'wp-logout' => [
-                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/wp-logout.html',
-                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/wp-logout.html'
+                        NOSTR_CALENDAR_PLUGIN_DIR . 'assets/wp-logout.html',
                     ],
                     'index.html' => [
-                        NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
-                        NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',
-                        NOSTR_CALENDAR_PLUGIN_DIR . 'index.html',
                         NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html',
-                        dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/index.html'  // Root of nostr-calendar-app
                     ]
                 ];
                 
@@ -304,7 +298,7 @@ class NostrCalendar {
                 }
                 
                 // For any other files, try to serve them from the html directory
-                $generic_file = NOSTR_CALENDAR_PLUGIN_DIR . 'html/' . $path;
+                $generic_file = NOSTR_CALENDAR_PLUGIN_DIR . 'assets/' . $path;
                 if (file_exists($generic_file) && is_file($generic_file)) {
                     // Basic security check - only allow certain file types
                     $allowed_extensions = ['html', 'css', 'js', 'json', 'txt'];
@@ -333,9 +327,6 @@ class NostrCalendar {
             
             // No specific path - serve main index.html
             $candidates = [
-                NOSTR_CALENDAR_PLUGIN_DIR . 'html/index.html',
-                NOSTR_CALENDAR_PLUGIN_DIR . 'assets/html/index.html',
-                NOSTR_CALENDAR_PLUGIN_DIR . 'index.html',
                 NOSTR_CALENDAR_PLUGIN_DIR . 'assets/index.html',
                 dirname(NOSTR_CALENDAR_PLUGIN_DIR) . '/index.html'  // Root of nostr-calendar-app
             ];

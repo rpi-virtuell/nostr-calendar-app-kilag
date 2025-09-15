@@ -313,7 +313,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
     try {
       // Get the WordPress site URL from session
-      const wpSiteUrl = this.currentSession.site_url || this.currentSession.wp_site_url;
+      const wpSiteUrl = this.currentSession?.site_url || this.currentSession?.wp_site_url || this.wpSiteUrl;
       let apiUrl = `${wpSiteUrl}/wp-json/nostr-calendar/v1/events`;
 
       // Add SSO token to request if available
@@ -453,6 +453,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       // (more reliable than headers for WordPress REST API)
       let apiUrl = `${this.wpSiteUrl}/wp-json/nostr-calendar/v1/me`;
       const storedSession = localStorage.getItem('wp_sso_session');
+      console.debug('[WordPressAuth] Checking WordPress session via API',storedSession?'with stored session':'without stored session');
       if (storedSession) {
         try {
           const sessionData = JSON.parse(storedSession);
@@ -463,6 +464,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         } catch (e) {
           console.debug('[WordPressAuth] Error parsing stored session');
         }
+      }else{
+        console.debug('[WordPressAuth] No stored session found');
+        return null;
       }
       
       const response = await fetch(apiUrl, fetchOptions);
