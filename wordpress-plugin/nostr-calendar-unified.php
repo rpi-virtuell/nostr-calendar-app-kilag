@@ -91,6 +91,7 @@ class NostrCalendarUnified {
         add_action('wp_ajax_save_nostr_delegation', [$this, 'ajax_save_nostr_delegation']);
         add_action('wp_ajax_remove_nostr_delegation', [$this, 'ajax_remove_nostr_delegation']);
         add_action('wp_ajax_test_nostr_sso_connection', [$this, 'ajax_test_sso_connection']);
+        add_action('wp_ajax_save_delegator_profile', [$this, 'ajax_save_delegator_profile']);
     }
     
     /**
@@ -473,9 +474,6 @@ class NostrCalendarUnified {
 
                                 // Build external lookup links for "whoami" of delegator
                                 $hex = $delegator;
-                                $link_nostr_band = 'https://nostr.band/?q=' . urlencode($hex);
-                                $link_highlighter = 'https://njump.me/' . urlencode($hex);
-                                $link_iris = 'https://iris.to/' . urlencode($hex);
                                 ?>
                                 <div style="margin-top:16px; padding:12px; border:1px dashed #ccc; background:#fff;">
                                     <h3 style="margin-top:0;">Gespeicherte Delegation (aktiver Status)</h3>
@@ -486,11 +484,11 @@ class NostrCalendarUnified {
                                                 <td>
                                                     <code><?php echo esc_html($hex); ?></code>
                                                     <div style="margin-top:6px; font-size:12px;">
-                                                        Whoami/Profil anzeigen:
-                                                        <a href="<?php echo esc_url($link_nostr_band); ?>" target="_blank" rel="noopener">nostr.band</a> ·
-                                                        <a href="<?php echo esc_url($link_highlighter); ?>" target="_blank" rel="noopener">njump</a> ·
-                                                        <a href="<?php echo esc_url($link_iris); ?>" target="_blank" rel="noopener">iris.to</a>
+                                                        <span id="delegator-profile-info-<?php echo esc_attr($hex); ?>" style="color:#666;">
+                                                            Profil wird geladen...
+                                                        </span>
                                                     </div>
+                                                    
                                                 </td>
                                             </tr>
                                             <tr>
@@ -526,10 +524,103 @@ class NostrCalendarUnified {
                                         </tbody>
                                     </table>
                                     <p class="description" style="margin-top:8px;">
-                                        Hinweis: Die Bestimmung des "Name/Whoami" des Delegators erfolgt über externe Nostr‑Explorer (Links oben).
-                                        Eine direkte Auflösung gegen Relays ist serverseitig derzeit nicht aktiviert.
+                                        Das Profil des Delegators wird automatisch über Nostr-Relays ermittelt.
+                                        Die externen Links bieten alternative Ansichten.
                                     </p>
                                 </div>
+                                
+                                <!-- JavaScript für automatische Profil-Ermittlung -->
+                                <script type="module">
+                                  // Warte auf nostr-tools
+                                  const waitForNostrTools = () => {
+                                    return new Promise((resolve) => {
+                                      if (window.NostrTools) {
+                                        resolve(window.NostrTools);
+                                      } else {
+                                        window.addEventListener('nostr-tools-ready', () => resolve(window.NostrTools));
+                                      }
+                                    });
+                                  };
+                                  
+                                  // Profil-Ermittlung basierend auf author.js
+                                  async function loadDelegatorProfile(hex) {
+                                    try {
+                                      const NostrTools = await waitForNostrTools();
+                                      const { SimplePool } = NostrTools;
+                                      
+                                      const pool = new SimplePool();
+                                      const relays = [
+                                        'wss://relay.damus.io',
+                                        'wss://relay.snort.social', 
+                                        'wss://nostr.wine',
+                                        'wss://nos.lol',
+                                        'wss://relay.nostr.band'
+                                      ];
+                                      
+                                      // Lade Profil-Event (kind 0)
+                                      const event = await pool.get(relays, {
+                                        authors: [hex],
+                                        kinds: [0],
+                                      });
+                                      
+                                      if (event && event.content) {
+                                        const meta = JSON.parse(event.content);
+                                        const name = meta.display_name || meta.name || 'Unbekannt';
+                                        const about = meta.about ? ` (${meta.about.substring(0, 100)}${meta.about.length > 100 ? '...' : ''})` : '';
+                                        
+                                        return { name, about, picture: meta.picture };
+                                      } else {
+                                        return null;
+                                      }
+                                    } catch (error) {
+                                      console.warn('Fehler beim Laden des Delegator-Profils:', error);
+                                      return null;
+                                    }
+                                  }
+                                  
+                                  // Lade Profil für den aktuellen Delegator
+                                  const delegatorHex = '<?php echo esc_js($hex); ?>';
+                                  const profileElement = document.getElementById('delegator-profile-info-' + delegatorHex);
+                                  
+                                  if (profileElement) {
+                                    loadDelegatorProfile(delegatorHex).then(profile => {
+                                      if (profile) {
+                                        profileElement.innerHTML = `
+                                          <strong style="color:#333;">${profile.name}</strong>${profile.about}
+                                          ${profile.picture ? `<br><img src="${profile.picture}" style="width:32px; height:32px; border-radius:16px; margin-top:4px;" alt="Avatar">` : ''}
+                                        `;
+                                        
+                                        // Speichere das ermittelte Profil serverseitig für die REST API
+                                        const formData = new FormData();
+                                        formData.append('action', 'save_delegator_profile');
+                                        formData.append('delegator_pubkey', delegatorHex);
+                                        formData.append('profile_name', profile.name);
+                                        formData.append('profile_about', profile.about || '');
+                                        formData.append('profile_picture', profile.picture || '');
+                                        formData.append('_wpnonce', '<?php echo wp_create_nonce('nostr_calendar_delegation'); ?>');
+                                        
+                                        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                                          method: 'POST',
+                                          body: formData
+                                        }).then(response => response.json())
+                                        .then(data => {
+                                          if (data.success) {
+                                            console.log('Delegator profile saved successfully:', data.data.profile);
+                                          } else {
+                                            console.warn('Failed to save delegator profile:', data.data);
+                                          }
+                                        }).catch(error => {
+                                          console.warn('Error saving delegator profile:', error);
+                                        });
+                                        
+                                      } else {
+                                        profileElement.innerHTML = '<span style="color:#999;">Profil nicht gefunden</span>';
+                                      }
+                                    }).catch(() => {
+                                      profileElement.innerHTML = '<span style="color:#cc0000;">Fehler beim Laden des Profils</span>';
+                                    });
+                                  }
+                                </script>
                                 <?php
                             } else {
                                 echo '<p style="color:#cc0000; margin-top:10px;">Gespeicherter Delegation‑Eintrag ist nicht im erwarteten Format.</p>';
@@ -1160,6 +1251,21 @@ class NostrCalendarUnified {
                     'saved_by' => $stored_delegation['saved_by'] ?? null,
                     'saved_at' => $stored_delegation['saved_at'] ?? null
                 );
+                
+                // Load cached delegator profile if available
+                $delegator_pubkey = $delegation['delegator'];
+                $profile_option_key = 'nostr_calendar_delegator_profile_' . $blog_id . '_' . $delegator_pubkey;
+                $cached_profile = get_option($profile_option_key, null);
+                
+                if ($cached_profile && is_array($cached_profile)) {
+                    $delegation['delegator_profile'] = [
+                        'name' => $cached_profile['name'] ?? 'Unbekannt',
+                        'about' => $cached_profile['about'] ?? '',
+                        'picture' => $cached_profile['picture'] ?? '',
+                        'cached_at' => $cached_profile['cached_at'] ?? null
+                    ];
+                }
+                
                 // If delegation exists, prefer delegator as calendar_identity.pubkey to show the authority who delegated
                 $pubkey = $delegation['delegator'];
             }
@@ -1183,8 +1289,18 @@ class NostrCalendarUnified {
             )
         );
 
+        // If delegation exists and we have cached profile data, use delegator's name as calendar identity
         if ($delegation) {
             $response['calendar_identity']['delegation'] = $delegation;
+            
+            // Use delegator's profile name if available
+            if (isset($delegation['delegator_profile']['name']) && !empty($delegation['delegator_profile']['name'])) {
+                $response['calendar_identity']['name'] = $delegation['delegator_profile']['name'];
+                $response['calendar_identity']['about'] = $delegation['delegator_profile']['about'] ?: 'Nostr Delegator';
+                if (!empty($delegation['delegator_profile']['picture'])) {
+                    $response['calendar_identity']['picture'] = $delegation['delegator_profile']['picture'];
+                }
+            }
         }
 
         return $response;
@@ -1368,6 +1484,48 @@ class NostrCalendarUnified {
             'message' => 'SSO-Verbindung erfolgreich getestet!',
             'url_status' => 'OK',
             'token_generation' => 'OK'
+        ]);
+    }
+    
+    /**
+     * AJAX Handler to save delegator profile information
+     */
+    public function ajax_save_delegator_profile() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+        
+        if (!check_ajax_referer('nostr_calendar_delegation', '_wpnonce', false)) {
+            wp_send_json_error('Invalid nonce');
+        }
+        
+        $delegator_pubkey = sanitize_text_field($_POST['delegator_pubkey'] ?? '');
+        $profile_name = sanitize_text_field($_POST['profile_name'] ?? '');
+        $profile_about = sanitize_text_field($_POST['profile_about'] ?? '');
+        $profile_picture = esc_url_raw($_POST['profile_picture'] ?? '');
+        
+        if (empty($delegator_pubkey) || empty($profile_name)) {
+            wp_send_json_error('Delegator pubkey and profile name are required');
+        }
+        
+        // Store profile information linked to the current blog
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegator_profile_' . $blog_id . '_' . $delegator_pubkey;
+        
+        $profile_data = [
+            'name' => $profile_name,
+            'about' => $profile_about,
+            'picture' => $profile_picture,
+            'pubkey' => $delegator_pubkey,
+            'cached_at' => time(),
+            'blog_id' => $blog_id
+        ];
+        
+        update_option($option_key, $profile_data);
+        
+        wp_send_json_success([
+            'message' => 'Delegator profile saved successfully',
+            'profile' => $profile_data
         ]);
     }
     
