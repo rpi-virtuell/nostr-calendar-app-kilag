@@ -130,7 +130,7 @@ class NostrSimpleCrypto {
         $has_kornrunner = false;
         
         // First check if class already exists
-        if (class_exists('kornrunner\\Secp256k1\\Secp256k1')) {
+        if (class_exists('kornrunner\\Secp256k1')) {
             $has_kornrunner = true;
             $has_autoloader = true;
         } else {
@@ -140,10 +140,8 @@ class NostrSimpleCrypto {
                     $has_autoloader = true;
                     try {
                         require_once $path;
-                        // Check both possible namespaces
-                        $has_kornrunner = class_exists('kornrunner\\Secp256k1\\Secp256k1') || 
-                                         class_exists('kornrunner\\Secp256k1') ||
-                                         class_exists('kornrunner\\secp256k1\\Secp256k1');
+                        // Check correct namespace for kornrunner/secp256k1 v0.3.0
+                        $has_kornrunner = class_exists('kornrunner\\Secp256k1');
                         if ($has_kornrunner) break;
                     } catch (Exception $e) {
                         // Continue to next path

@@ -22,48 +22,9 @@ class NostrCalendarPublisher {
         error_log('[Nostr Calendar] Publishing event: ' . print_r($event_data, true));
         error_log('[Nostr Calendar] Using identity: ' . print_r($calendar_identity, true));
         try {
-            // If a delegation is stored for this blog, attach delegation tag to event tags
-            $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
-            $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
-            $stored = get_option($option_key, null);
-            $delegation_parsed = null;
-            if (is_array($stored) && !empty($stored['blob'])) {
-                // try to parse stored blob as JSON array (it was stored raw)
-                $raw = $stored['blob'];
-                $arr = json_decode($raw, true);
-                if (!is_array($arr)) {
-                    // fallback: replace single quotes
-                    $arr = json_decode(str_replace("'", '"', $raw), true);
-                }
-                if (is_array($arr) && count($arr) >= 4 && $arr[0] === 'delegation') {
-                    // ensure tags array exists
-                    if (!isset($event_data['tags']) || !is_array($event_data['tags'])) {
-                        $event_data['tags'] = array();
-                    }
-                    // Append delegation tag in NIP-26 format: ['delegation', '<sig>', '<conds>', '<delegator_pubkey>']
-                    $delegation_tag = array('delegation', $arr[1], $arr[2], $arr[3]);
-                    $event_data['tags'][] = $delegation_tag;
-
-                    // keep parsed delegation for validation
-                    $delegation_parsed = array(
-                        'sig' => $arr[1],
-                        'conds' => $arr[2],
-                        'delegator' => $arr[3]
-                    );
-                }
-            }
-
-            // If a delegation exists, validate its conditions against the event (created_at and kind)
-            if ($delegation_parsed) {
-                $valid = $this->validate_delegation_conditions($delegation_parsed['conds'], $event_data);
-                if ($valid !== true) {
-                    // Return structured error explaining why delegation invalid
-                    return [
-                        'success' => false,
-                        'errors' => ['delegation_invalid' => $valid]
-                    ];
-                }
-            }
+            // Use delegation manager to add delegation tag if configured
+            $delegation_manager = new NostrCalendarDelegation();
+            $event_data = $delegation_manager->add_delegation_tag_to_event($event_data);
 
             // Sign the event
             $signed_event = $this->sign_event($event_data, $calendar_identity);
@@ -93,64 +54,6 @@ class NostrCalendarPublisher {
         }
     }
 
-    /**
-     * Validate a delegation conditions string (NIP-26 simple parser)
-     * Supports conditions like: "created_at>1600000000&created_at<1700000000&kind=1,31923"
-     * Returns true if valid, otherwise string with reason.
-     */
-    private function validate_delegation_conditions($conds, $event_data) {
-        if (empty($conds) || !is_string($conds)) return true;
-
-        $parts = explode('&', $conds);
-        $now = time();
-
-        $allowed_kinds = null;
-        $min_created = null;
-        $max_created = null;
-
-        foreach ($parts as $p) {
-            $p = trim($p);
-            if (strpos($p, 'created_at>') === 0) {
-                $v = (int)substr($p, strlen('created_at>'));
-                $min_created = $v;
-            } elseif (strpos($p, 'created_at<') === 0) {
-                $v = (int)substr($p, strlen('created_at<'));
-                $max_created = $v;
-            } elseif (strpos($p, 'kind=') === 0) {
-                $vals = substr($p, strlen('kind='));
-                // allow comma separated kinds
-                $allowed_kinds = array_filter(array_map('intval', explode(',', $vals)));
-            } elseif (strpos($p, 'kinds=') === 0) {
-                $vals = substr($p, strlen('kinds='));
-                $allowed_kinds = array_filter(array_map('intval', explode(',', $vals)));
-            } else {
-                // unknown condition - ignore for now
-            }
-        }
-
-        // Validate created_at against delegation
-        $event_created = isset($event_data['created_at']) ? (int)$event_data['created_at'] : $now;
-        if ($min_created !== null && $event_created <= $min_created) {
-            return "created_at must be > {$min_created}";
-        }
-        if ($max_created !== null && $event_created >= $max_created) {
-            return "created_at must be < {$max_created}";
-        }
-
-        // Validate kind if delegation restricts kinds
-        if (is_array($allowed_kinds)) {
-            $event_kind = isset($event_data['kind']) ? (int)$event_data['kind'] : null;
-            if ($event_kind === null) {
-                return "event kind missing";
-            }
-            if (!in_array($event_kind, $allowed_kinds, true)) {
-                return "event kind {$event_kind} not allowed by delegation";
-            }
-        }
-
-        return true;
-    }
-    
     /**
      * Sign Nostr event using secp256k1
      */
@@ -195,10 +98,10 @@ class NostrCalendarPublisher {
         // Try proper crypto libraries first if available
         if (NostrSimpleCrypto::has_proper_crypto()) {
             
-            // kornrunner/secp256k1 library
-            if (class_exists('kornrunner\Secp256k1\Secp256k1')) {
+            // kornrunner/secp256k1 library v0.3.0
+            if (class_exists('kornrunner\Secp256k1')) {
                 try {
-                    $secp256k1 = new \kornrunner\Secp256k1\Secp256k1();
+                    $secp256k1 = new \kornrunner\Secp256k1();
                     $signature = $secp256k1->sign(hex2bin($event_id), hex2bin($private_key));
                     return bin2hex($signature);
                 } catch (Exception $e) {
