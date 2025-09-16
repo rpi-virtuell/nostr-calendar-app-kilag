@@ -47,11 +47,11 @@ class NostrCalendarUnified {
         
         // Check if SSO is enabled
         $this->sso_enabled = get_option('nostr_calendar_sso_enabled', false);
-        error_log('[NostrCalendar] SSO enabled check: ' . ($this->sso_enabled ? 'YES' : 'NO'));
+        // error_log('[NostrCalendar] SSO enabled check: ' . ($this->sso_enabled ? 'YES' : 'NO'));
         
         // Initialize SSO features if enabled
         if ($this->sso_enabled) {
-            error_log('[NostrCalendar] Initializing SSO features');
+            // error_log('[NostrCalendar] Initializing SSO features');
             $this->init_sso_features();
             
             // Register REST API routes immediately like original SSO plugin
@@ -106,7 +106,7 @@ class NostrCalendarUnified {
         add_action('wp_ajax_get_nostr_token', [$this, 'ajax_get_nostr_token']);
         add_action('wp_ajax_nopriv_get_nostr_token', [$this, 'ajax_get_nostr_token_public']);
         
-        error_log('[NostrCalendarUnified] SSO features initialized');
+        error_log('[NostrCalendar] SSO features initialized');
     }
     
     public function enqueue_scripts() {
@@ -1078,7 +1078,7 @@ class NostrCalendarUnified {
      * Registriert REST API Routen für die Nostr Calendar App
      */
     public function register_rest_routes() {
-        error_log('[NostrCalendar] Registering REST routes from unified plugin');
+        // error_log('[NostrCalendar] Registering REST routes from unified plugin');
         
         register_rest_route('nostr-calendar/v1', '/me', array(
             'methods' => 'GET',
@@ -1114,26 +1114,26 @@ class NostrCalendarUnified {
     
     public function rest_permission_check() {
         // Debug logging
-        error_log('[NostrCalendar] rest_permission_check called');
+        // error_log('[NostrCalendar] rest_permission_check called');
         
         // Check for SSO token first (more reliable)
         $token = $this->get_request_token();
-        error_log('[NostrCalendar] Token found: ' . ($token ? 'YES' : 'NO'));
+        // error_log('[NostrCalendar] Token found: ' . ($token ? 'YES' : 'NO'));
         
         if ($token) {
             $payload = $this->verify_token($token);
-            error_log('[NostrCalendar] Token valid: ' . ($payload ? 'YES' : 'NO'));
+            // error_log('[NostrCalendar] Token valid: ' . ($payload ? 'YES' : 'NO'));
             if ($payload && $payload['wp_user_id']) {
                 // Set current user temporarily for this request
                 wp_set_current_user($payload['wp_user_id']);
-                error_log('[NostrCalendar] User set to: ' . $payload['wp_user_id']);
+                // error_log('[NostrCalendar] User set to: ' . $payload['wp_user_id']);
                 return true;
             }
         }
         
         // Fallback to regular WordPress authentication
         $logged_in = is_user_logged_in();
-        error_log('[NostrCalendar] WordPress logged in: ' . ($logged_in ? 'YES' : 'NO'));
+        // error_log('[NostrCalendar] WordPress logged in: ' . ($logged_in ? 'YES' : 'NO'));
         return $logged_in;
     }
     
@@ -1143,13 +1143,13 @@ class NostrCalendarUnified {
     private function get_request_token() {
         // Check query parameter first (most reliable for WordPress)
         if (isset($_GET['sso_token'])) {
-            error_log('[NostrCalendar] Token found in GET: ' . substr($_GET['sso_token'], 0, 20) . '...');
+            // error_log('[NostrCalendar] Token found in GET: ' . substr($_GET['sso_token'], 0, 20) . '...');
             return sanitize_text_field($_GET['sso_token']);
         }
         
         // Check POST data
         if (isset($_POST['sso_token'])) {
-            error_log('[NostrCalendar] Token found in POST');
+            // error_log('[NostrCalendar] Token found in POST');
             return sanitize_text_field($_POST['sso_token']);
         }
         
@@ -1171,7 +1171,7 @@ class NostrCalendarUnified {
         }
         
         if ($auth_header && strpos($auth_header, 'Bearer ') === 0) {
-            error_log('[NostrCalendar] Token found in Authorization header');
+            // error_log('[NostrCalendar] Token found in Authorization header');
             return substr($auth_header, 7);
         }
         
@@ -1183,7 +1183,7 @@ class NostrCalendarUnified {
      * Verifiziert Token (für Debugging/Testing)
      */
     public function verify_token($token) {
-        error_log('[NostrCalendar] Verifying token: ' . substr($token, 0, 20) . '...');
+        // error_log('[NostrCalendar] Verifying token: ' . substr($token, 0, 20) . '...');
         
         $parts = explode('.', $token);
         if (count($parts) !== 2) {
@@ -1216,7 +1216,7 @@ class NostrCalendarUnified {
             return false;
         }
         
-        error_log('[NostrCalendar] Token valid for user: ' . $payload['wp_user_id']);
+        // error_log('[NostrCalendar] Token valid for user: ' . $payload['wp_user_id']);
         return $payload;
     }
     

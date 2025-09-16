@@ -132,6 +132,8 @@ class NostrCalendarRestAPI {
         
         // Publish to Nostr relays
         $publisher = new NostrCalendarPublisher();
+        error_log('[Nostr Calendar] create_event Publishing event: ' . print_r($event_data, true));
+        error_log('[Nostr Calendar] create_event Using identity: ' . print_r($calendar_identity, true));
         $result = $publisher->publish_event($event_data, $calendar_identity);
         
         if ($result['success']) {

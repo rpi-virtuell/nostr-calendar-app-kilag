@@ -203,8 +203,8 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       const apiEventData = {
         title: eventData.title,
         content: eventData.content || '',
-        starts: eventData.starts,
-        ends: eventData.ends || '',
+        start: eventData.start || eventData.starts || '',
+        end: eventData.end || eventData.ends || '',
         location: eventData.location || ''
       };
 

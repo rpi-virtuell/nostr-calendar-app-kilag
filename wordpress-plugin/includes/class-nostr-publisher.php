@@ -19,6 +19,8 @@ class NostrCalendarPublisher {
      * Publish event to Nostr relays
      */
     public function publish_event($event_data, $calendar_identity) {
+        error_log('[Nostr Calendar] Publishing event: ' . print_r($event_data, true));
+        error_log('[Nostr Calendar] Using identity: ' . print_r($calendar_identity, true));
         try {
             // If a delegation is stored for this blog, attach delegation tag to event tags
             $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
