@@ -15,8 +15,8 @@ export function eventsToICS(events){
   let out = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Nostr Calendar//EN'];
   for(const e of events){
     const title = e.tags.find(t=>t[0]==='title')?.[1] || '';
-    const starts = Number(e.tags.find(t=>t[0]==='starts')?.[1]||0);
-    const ends = Number(e.tags.find(t=>t[0]==='ends')?.[1]||starts);
+    const start = Number(e.tags.find(t=>t[0]==='start')?.[1]||0);
+    const end = Number(e.tags.find(t=>t[0]==='end')?.[1]||start);
     const loc = e.tags.find(t=>t[0]==='location')?.[1] || '';
     const sum = e.tags.find(t=>t[0]==='summary')?.[1] || '';
     const dtag = e.tags.find(t=>t[0]==='d')?.[1] || e.id;
@@ -25,8 +25,8 @@ export function eventsToICS(events){
     out.push('BEGIN:VEVENT');
     out.push('UID:'+uid);
     out.push('DTSTAMP:'+toICSDate(e.created_at||Math.floor(Date.now()/1000)));
-    out.push('DTSTART:'+toICSDate(starts));
-    out.push('DTEND:'+toICSDate(ends));
+    out.push('DTSTART:'+toICSDate(start));
+    out.push('DTEND:'+toICSDate(end));
     out.push('SUMMARY:'+title);
     if(loc) out.push('LOCATION:'+loc);
     if(desc) out.push('DESCRIPTION:'+desc);
@@ -66,14 +66,14 @@ function dayCodeToIndex(dc){ return {MO:1,TU:2,WE:3,TH:4,FR:5,SA:6,SU:0}[dc]; }
 function addDays(d, n){ const x=new Date(d*1000); x.setDate(x.getDate()+n); return Math.floor(x.getTime()/1000); }
 function addMonths(d, n){ const x=new Date(d*1000); x.setMonth(x.getMonth()+n); return Math.floor(x.getTime()/1000); }
 
-function expandRRule({starts, ends, rrule, limit=400}){
+function expandRRule({start, end, rrule, limit=400}){
   const out = [];
   const freq = (rrule.FREQ||'').toUpperCase();
   const interval = rrule.INTERVAL||1;
   const until = rrule.UNTIL ? parseICSDate(rrule.UNTIL) : null;
   let count = rrule.COUNT ? Number(rrule.COUNT) : null;
 
-  let cursorS = starts, cursorE = ends;
+  let cursorS = start, cursorE = end;
   const pushIf = (s,e)=>{
     if(until && s>until) return false;
     out.push([s,e]);
@@ -89,7 +89,7 @@ function expandRRule({starts, ends, rrule, limit=400}){
     }
   } else if(freq==='WEEKLY'){
     // base week start (Monday)
-    const base = new Date(starts*1000);
+    const base = new Date(start*1000);
     const baseMonday = new Date(base); const wday=(baseMonday.getDay()+6)%7; baseMonday.setDate(baseMonday.getDate()-wday);
     const by = (rrule.BYDAY && rrule.BYDAY.length) ? rrule.BYDAY : [ ['SU','MO','TU','WE','TH','FR','SA'][base.getDay()] ];
     let weekStart = Math.floor(baseMonday.getTime()/1000);
@@ -98,30 +98,30 @@ function expandRRule({starts, ends, rrule, limit=400}){
       for(const dc of by){
         const idx = dayCodeToIndex(dc);
         const s = addDays(weekStart, idx);
-        const e = s + (ends-starts);
-        if(s >= starts){ if(!pushIf(s,e)) return out; }
+        const e = s + (end-start);
+        if(s >= start){ if(!pushIf(s,e)) return out; }
       }
       i += interval;
       weekStart = addDays(Math.floor(baseMonday.getTime()/1000), 7*i);
       if(out.length>=limit) break;
     }
   } else if(freq==='MONTHLY'){
-    const bymd = (rrule.BYMONTHDAY && rrule.BYMONTHDAY.length) ? rrule.BYMONTHDAY : [ new Date(starts*1000).getDate() ];
+    const bymd = (rrule.BYMONTHDAY && rrule.BYMONTHDAY.length) ? rrule.BYMONTHDAY : [ new Date(start*1000).getDate() ];
     let i=0;
     while(true){
-      const baseMonth = addMonths(starts, i*interval);
+      const baseMonth = addMonths(start, i*interval);
       const bd = new Date(baseMonth*1000);
       for(const md of bymd){
         const s = Math.floor(new Date(bd.getFullYear(), bd.getMonth(), md,  bd.getHours(), bd.getMinutes(), bd.getSeconds()).getTime()/1000);
-        const e = s + (ends-starts);
-        if(s >= starts){ if(!pushIf(s,e)) return out; }
+        const e = s + (end-start);
+        if(s >= start){ if(!pushIf(s,e)) return out; }
       }
       if(out.length>=limit) break;
       i++;
     }
   } else {
     // fallback: just original
-    out.push([starts, ends]);
+    out.push([start, end]);
   }
   return out;
 }
@@ -143,15 +143,15 @@ export async function importICS(file){
   }
   // Map to Nostr-ish objects
   return events.map(v=>{
-    const starts = parseICSDate(v['DTSTART']);
-    const ends = parseICSDate(v['DTEND']) || starts;
+    const start = parseICSDate(v['DTSTART']);
+    const end = parseICSDate(v['DTEND']) || start;
     const title = v['SUMMARY'] || '';
     const location = v['LOCATION'] || '';
     const description = v['DESCRIPTION'] ? v['DESCRIPTION'].replace(/\\n/g,'\n') : '';
     const d = (v['UID']||'').replace(/@.*$/,'') || undefined;
     return {
       title,
-      starts, ends,
+      start, end,
       status: 'planned',
       summary: description.slice(0,280),
       location,

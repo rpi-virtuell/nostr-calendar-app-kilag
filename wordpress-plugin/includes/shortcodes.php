@@ -121,11 +121,11 @@ function nostr_calendar_shortcode($atts) {
                 <label for="event-title"><?php _e('Title *', 'nostr-calendar'); ?></label>
                 <input type="text" id="event-title" required>
                 
-                <label for="event-starts"><?php _e('Start *', 'nostr-calendar'); ?></label>
-                <input type="datetime-local" id="event-starts" required>
+                <label for="event-start"><?php _e('Start *', 'nostr-calendar'); ?></label>
+                <input type="datetime-local" id="event-start" required>
                 
-                <label for="event-ends"><?php _e('End *', 'nostr-calendar'); ?></label>
-                <input type="datetime-local" id="event-ends" required>
+                <label for="event-end"><?php _e('End *', 'nostr-calendar'); ?></label>
+                <input type="datetime-local" id="event-end" required>
                 
                 <label for="event-location"><?php _e('Location', 'nostr-calendar'); ?></label>
                 <input type="text" id="event-location">

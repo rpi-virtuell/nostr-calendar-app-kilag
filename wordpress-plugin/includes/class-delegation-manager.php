@@ -368,4 +368,42 @@ class NostrCalendarDelegationManager {
         
         <?php
     }
+    
+    /**
+     * Add delegation tag to event if delegation is configured for this blog
+     */
+    public function add_delegation_tag_to_event($event_data) {
+        $blog_id = function_exists('get_current_blog_id') ? get_current_blog_id() : 0;
+        $option_key = 'nostr_calendar_delegation_blog_' . $blog_id;
+        $stored_delegation = get_option($option_key, null);
+        
+        if (!is_array($stored_delegation) || empty($stored_delegation['blob'])) {
+            return $event_data; // No delegation configured
+        }
+        
+        $raw = $stored_delegation['blob'];
+        $arr = json_decode($raw, true);
+        if (!is_array($arr)) {
+            // fallback parse single quotes
+            $arr = json_decode(str_replace("'", '"', $raw), true);
+        }
+        
+        if (is_array($arr) && count($arr) >= 4 && $arr[0] === 'delegation') {
+            // Extract delegation parts: ['delegation', sig, conds, delegator_pubkey]
+            $sig = $arr[1];
+            $conds = $arr[2];
+            $delegator_pubkey = $arr[3];
+            
+            // Add delegation tag to event
+            if (!isset($event_data['tags'])) {
+                $event_data['tags'] = [];
+            }
+            
+            $event_data['tags'][] = ['delegation', $delegator_pubkey, $conds, $sig];
+            
+            error_log('[NostrCalendar] Added delegation tag to event: ' . $delegator_pubkey);
+        }
+        
+        return $event_data;
+    }
 }

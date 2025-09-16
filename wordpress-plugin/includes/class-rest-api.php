@@ -263,11 +263,89 @@ class NostrCalendarRestAPI {
      * REST API Endpoint: Event erstellen
      */
     public function rest_create_event($request) {
-        // Simple implementation - in production this would create actual events
-        return array(
-            'success' => true,
-            'message' => 'Event würde erstellt werden',
-            'user_id' => get_current_user_id()
-        );
+        $user_id = get_current_user_id();
+        $user = get_user_by('id', $user_id);
+        
+        if (!$user) {
+            return new WP_Error('user_not_found', 'Benutzer nicht gefunden', array('status' => 404));
+        }
+        
+        // Get event data from request (JSON body or form parameters)
+        $json_params = $request->get_json_params();
+        if ($json_params) {
+            // Data from JSON body
+            $title = sanitize_text_field($json_params['title'] ?? '');
+            $start = $json_params['start'] ?? '';
+            $end = $json_params['end'] ?? '';
+            $location = sanitize_text_field($json_params['location'] ?? '');
+            $description = sanitize_textarea_field($json_params['content'] ?? $json_params['summary'] ?? $json_params['description'] ?? '');
+            $d_tag = sanitize_text_field($json_params['d'] ?? '');
+        } else {
+            // Data from form parameters
+            $title = sanitize_text_field($request->get_param('title'));
+            $start = $request->get_param('start');
+            $end = $request->get_param('end');
+            $location = sanitize_text_field($request->get_param('location'));
+            $description = sanitize_textarea_field($request->get_param('description'));
+            $d_tag = sanitize_text_field($request->get_param('d'));
+        }
+        
+        if (empty($title) || empty($start) || empty($end)) {
+            return new WP_Error('missing_data', 'Titel, Start und End-Zeit sind erforderlich', array('status' => 400));
+        }
+        
+        // Convert timestamps to ISO strings if they're numeric
+        if (is_numeric($start)) {
+            $start = date('c', $start); // ISO 8601 format
+        }
+        if (is_numeric($end)) {
+            $end = date('c', $end); // ISO 8601 format
+        }
+        
+        // Get user's calendar identity (with delegation support)
+        $identity_manager = new NostrCalendarIdentity();
+        $calendar_identity = $identity_manager->get_or_create_identity($user_id);
+        
+        // Prepare event data for Nostr
+        $event_data = [
+            'kind' => 31923, // Calendar time-based event (NIP-52)
+            'content' => $description ?: '',
+            'tags' => [
+                ['d', $d_tag ?: 'wp-event-' . time() . '-' . $user_id], // Unique identifier
+                ['title', $title],
+                ['start', $start],
+                ['end', $end]
+            ],
+            'created_at' => time()
+        ];
+        
+        // Add location if provided
+        if (!empty($location)) {
+            $event_data['tags'][] = ['location', $location];
+        }
+        
+        // Add WordPress metadata
+        $event_data['tags'][] = ['wp_user_id', (string)$user_id];
+        $event_data['tags'][] = ['wp_site', site_url()];
+        
+        // Publish using NostrCalendarPublisher
+        $publisher = new NostrCalendarPublisher();
+        $result = $publisher->publish_event($event_data, $calendar_identity);
+        
+        if ($result['success']) {
+            return [
+                'success' => true,
+                'message' => 'Event erfolgreich erstellt und an Nostr-Relays gesendet',
+                'event' => $result['event'],
+                'relays_published' => $result['relays_published'],
+                'user_id' => $user_id,
+                'calendar_identity' => $calendar_identity
+            ];
+        } else {
+            return new WP_Error('publish_failed', 'Event-Veröffentlichung fehlgeschlagen', [
+                'status' => 500,
+                'details' => $result['errors']
+            ]);
+        }
     }
 }

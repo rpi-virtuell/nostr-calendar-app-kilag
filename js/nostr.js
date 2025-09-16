@@ -519,15 +519,15 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
   toEventTemplate(data) {
     const tags = [
       ['title', data.title],
-      ['starts', String(data.starts)],
-      ['ends', String(data.ends)],
+      ['start', String(data.start)],
+      ['end', String(data.end)],
       ['status', data.status || 'planned'],
     ];
     if (data.summary) tags.push(['summary', data.summary]);
     if (data.location) tags.push(['location', data.location]);
     if (data.image) tags.push(['image', data.image]);
     for (const t of (data.tags || [])) { const v = String(t).trim(); if (v) tags.push(['t', v]); }
-    const d = data.d || b64((data.url || '') + '|' + data.title + '|' + data.starts);
+    const d = data.d || b64((data.url || '') + '|' + data.title + '|' + data.start);
     tags.push(['d', d]);
     if (Array.isArray(Config.appTag)) tags.push(Config.appTag);
     return { evt: { kind: 31923, created_at: Math.floor(Date.now() / 1000), tags, content: data.content || '' }, d };

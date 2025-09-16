@@ -114,8 +114,8 @@ export class KeycloakAuthPlugin extends AuthPluginInterface {
       },
       body: JSON.stringify({
         title: eventData.title,
-        start: eventData.starts,
-        end: eventData.ends,
+        start: eventData.start,
+        end: eventData.end,
         location: eventData.location || '',
         description: eventData.content || '',
         metadata: {

@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     const data = getFormData();
     
-    if (!data.title || !data.starts || !data.ends) {
+    if (!data.title || !data.start || !data.end) {
       alert('Titel, Beginn und Ende sind Pflichtfelder.');
       return;
     }

@@ -371,7 +371,7 @@ function applyFilters(){
 
   if(state.month){
     out = out.filter(e=>{
-      const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1] || 0);
+      const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1]||e.tags.find(t=>t[0]==='start')?.[1] || 0);
       const d = new Date(startS*1000);
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       return key===state.month;
@@ -411,8 +411,8 @@ function renderCurrentView(){
     if (monthView) monthView.render(data);
   } else {
     data.sort((a,b)=> {
-      const aS = Number(a.tags.find(t=>t[0]==='starts')?.[1] || 0);
-      const bS = Number(b.tags.find(t=>t[0]==='starts')?.[1] || 0);
+      const aS = Number(a.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
+      const bS = Number(b.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
       return aS - bS;
     });
     // Kartenansicht: Month verstecken, Grid zeigen
@@ -626,7 +626,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   on(els.btnSave, 'click', async (e)=>{
     e.preventDefault();
     const data = getFormData();
-    if(!data.title || !data.starts || !data.ends){
+    if(!data.title || !data.start || !data.end){
       alert('Titel, Beginn und Ende sind Pflichtfelder.');
       return;
     }

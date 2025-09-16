@@ -3,8 +3,8 @@ import { mdToHtml, secsToLocalInput, localInputToSecs, uid } from '../utils.js';
 export function fillFormFromEvent(e){
   const get = (k)=> e.tags.find(t=>t[0]===k)?.[1];
   document.getElementById('f-title').value = get('title') || '';
-  document.getElementById('f-starts').value = secsToLocalInput(Number(get('starts')||0));
-  document.getElementById('f-ends').value = secsToLocalInput(Number(get('ends')||0));
+  document.getElementById('f-start').value = secsToLocalInput(Number(get('start')||0));
+  document.getElementById('f-end').value = secsToLocalInput(Number(get('end')||0));
   document.getElementById('f-status').value = get('status') || 'planned';
   document.getElementById('f-location').value = get('location') || '';
   document.getElementById('f-image').value = get('image') || '';
@@ -51,8 +51,8 @@ export function fill_form_for_debugging(){
   const id = uid();
 
   document.getElementById('f-title').value = title;
-  document.getElementById('f-starts').value = secsToLocalInput(startSecs);
-  document.getElementById('f-ends').value = secsToLocalInput(endsSecs);
+  document.getElementById('f-start').value = secsToLocalInput(startSecs);
+  document.getElementById('f-end').value = secsToLocalInput(endsSecs);
   document.getElementById('f-status').value = status;
   document.getElementById('f-location').value = location;
   document.getElementById('f-image').value = imageUrl;
@@ -70,7 +70,7 @@ export function fill_form_for_debugging(){
 window.fill_form_for_debugging = fill_form_for_debugging; // Debug-Helfer global verfügbar machen 
 
 export function clearForm(){
-  for(const id of ['f-title','f-starts','f-ends','f-status','f-location','f-image','f-summary','f-content','f-dtag','f-id']){
+  for(const id of ['f-title','f-start','f-end','f-status','f-location','f-image','f-summary','f-content','f-dtag','f-id']){
     const el = document.getElementById(id);
     el.value = '';
   }
@@ -97,8 +97,8 @@ export function getFormData(){
   const chips = [...document.querySelectorAll('#chips-edit .chip')].map(c=>c.childNodes[0].nodeValue.trim());
   return {
     title: document.getElementById('f-title').value.trim(),
-    starts: localInputToSecs(document.getElementById('f-starts').value),
-    ends: localInputToSecs(document.getElementById('f-ends').value),
+    start: localInputToSecs(document.getElementById('f-start').value),
+    end: localInputToSecs(document.getElementById('f-end').value),
     status: document.getElementById('f-status').value,
     location: document.getElementById('f-location').value.trim(),
     image: document.getElementById('f-image').value.trim(),

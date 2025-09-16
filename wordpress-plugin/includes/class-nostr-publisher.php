@@ -23,8 +23,10 @@ class NostrCalendarPublisher {
         error_log('[Nostr Calendar] Using identity: ' . print_r($calendar_identity, true));
         try {
             // Use delegation manager to add delegation tag if configured
-            $delegation_manager = new NostrCalendarDelegation();
-            $event_data = $delegation_manager->add_delegation_tag_to_event($event_data);
+            global $nostr_calendar_delegation_manager;
+            if ($nostr_calendar_delegation_manager) {
+                $event_data = $nostr_calendar_delegation_manager->add_delegation_tag_to_event($event_data);
+            }
 
             // Sign the event
             $signed_event = $this->sign_event($event_data, $calendar_identity);

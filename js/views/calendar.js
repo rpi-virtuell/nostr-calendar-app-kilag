@@ -51,7 +51,7 @@ export class MonthView{
 
     const evsByDay = new Map();
     for(const e of events){
-      const s = Number(e.tags.find(t=>t[0]==='starts')?.[1]||0);
+      const s = Number(e.tags.find(t=>t[0]==='starts')?.[1]||e.tags.find(t=>t[0]==='start')?.[1]||0);
       if(!s) continue;
       const d = new Date(s*1000);
       if(d.getMonth()!==this.current.getMonth() || d.getFullYear()!==this.current.getFullYear()){
@@ -74,7 +74,7 @@ export class MonthView{
       const list = evsByDay.get(key)||[];
       for(const e of list){
         const t = e.tags.find(x=>x[0]==='title')?.[1] || '(ohne Titel)';
-        const s = Number(e.tags.find(x=>x[0]==='starts')?.[1]||0);
+        const s = Number(e.tags.find(x=>x[0]==='starts')?.[1]||e.tags.find(x=>x[0]==='start')?.[1]||0);
         const h = new Date(s*1000).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
         const a = document.createElement('a');
         a.href='#'; a.className='ev';
