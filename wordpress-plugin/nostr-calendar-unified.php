@@ -32,7 +32,7 @@ if (file_exists(NOSTR_CALENDAR_PLUGIN_DIR . 'vendor/autoload.php')) {
 class NostrCalendarUnified {
     
     private $sso_enabled = false;
-    private $shared_secret = '33633f1ee42b18d4f9439bda97cf8c760704d408c70e7b0bbd3ccb8321137a92'; // Same as original SSO plugin
+    private $shared_secret = '8afbcf017eee556056251b040a3e70f9e78720580a12b27d5f166bf750b3fe7f'; // Same as original SSO plugin
     private $calendar_app_url = 'https://test1.rpi-virtuell.de/nostr-calendar'; // In Produktion: Ihre Nostr Calendar Domain
     
     public function __construct() {
@@ -376,14 +376,19 @@ class NostrCalendarUnified {
                             <div id="test-result"></div>
                             
                             <h3><?php _e('SSO Link', 'nostr-calendar'); ?></h3>
-                            <p><?php _e('Direct SSO page for this calendar instance (with generated token):', 'nostr-calendar'); ?></p>
+                            <p>
+                                <?php _e('Direct SSO page for this calendar instance (with generated token):', 'nostr-calendar'); ?>
+                            </p>
                             <?php 
                             $uid = get_current_user_id(); 
                             $this->ensure_user_pubkey_meta($uid);
                             $tok = $this->generate_nostr_token($uid);
                             $current_url = $sso_settings['calendar_app_url'];
                             ?>
-                            <p><a href="<?php echo esc_url($current_url); ?>/wp-sso.html?token=<?php echo urlencode($tok); ?>" target="_blank"><?php echo esc_url($current_url); ?>/wp-sso.html?token=...</a></p>
+                            <p>
+                                <a href="<?php echo esc_url($current_url); ?>/wp-sso.html?token=<?php echo urlencode($tok); ?>" target="_blank"><?php echo esc_url($current_url); ?>/wp-sso.html?token=...</a>
+                                <a href="<?php echo home_url(); ?>/wp-json/nostr-calendar/v1/me?sso_token=<?php echo urlencode($tok); ?>" target="_blank">rest api endpoint</a>
+                            </p>
                         <?php else: ?>
                             <p><?php _e('Bitte melden Sie sich an, um die Integration zu testen.', 'nostr-calendar'); ?></p>
                         <?php endif; ?>

@@ -29,7 +29,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
             if (Date.now() / 1000 < session.expires) {
               // Normalize calendar_identity.pubkey to match server algorithm if not using a shared blog identity
               try {
-                if (session.user && session.user.id && !session.shared_identity) {
+                if (session.user && session.user.id && !session.shared_identity && !this.isDelegatedIdentity(session.calendar_identity)) {
                   const siteUrl = session.site_url || session.wp_site_url || this.wpSiteUrl;
                   const expectedPub = await this.generateDeterministicPubkey(session.user.id, siteUrl);
                   if (!session.calendar_identity) session.calendar_identity = {};
@@ -37,6 +37,8 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
                     session.calendar_identity.pubkey = expectedPub;
                     localStorage.setItem('wp_sso_session', JSON.stringify(session));
                   }
+                } else if (this.isDelegatedIdentity(session.calendar_identity)) {
+                  console.debug('[WordPressAuth] Detected delegated calendar_identity, skipping pubkey normalization');
                 }
               } catch (e) {
                 console.debug('[WordPressAuth] Error normalizing session pubkey during init:', e);
@@ -99,7 +101,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         about: `WordPress user from ${session.site_url || session.wp_site_url}`,
         nip05: `${user.username}@${new URL(session.site_url || session.wp_site_url).hostname}`
       },
-      displayName: user.display_name || user.username,
+      displayName: calendarIdentity?.name || user.display_name || user.username,
       provider: 'wordpress',
       method: 'wordpress_sso',
       supports: {
@@ -108,7 +110,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         serverSidePublishing: true
       }
     };
-
+    console.debug('[WordPressAuth] getIdentity:', identity);
     return identity;
   }
 
@@ -520,7 +522,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       // Session is valid
       // Ensure calendar_identity.pubkey matches deterministic algorithm
       try {
-        if (session.user && session.user.id) {
+        if (session.user && session.user.id && !this.isDelegatedIdentity(session.calendar_identity)) {
           const siteUrl = session.site_url || session.wp_site_url || this.wpSiteUrl;
           const expectedPub = await this.generateDeterministicPubkey(session.user.id, siteUrl);
           if (!session.calendar_identity) session.calendar_identity = {};
@@ -529,6 +531,8 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
             localStorage.setItem('wp_sso_session', JSON.stringify(session));
             console.log('[WordPressAuth] Normalized local session pubkey for user:', session.user.username);
           }
+        } else if (this.isDelegatedIdentity(session.calendar_identity)) {
+          console.debug('[WordPressAuth] Detected delegated calendar_identity, skipping pubkey normalization');
         }
       } catch (e) {
         console.debug('[WordPressAuth] Error normalizing session pubkey:', e);
@@ -563,6 +567,26 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
     // Ensure 64-character lowercase hex (32 bytes)
     return hex.toLowerCase().slice(0, 64).padEnd(64, '0');
+  }
+
+  // Detect a delegated (NIP-26) calendar identity to avoid overwriting delegated pubkeys
+  isDelegatedIdentity(calendarIdentity) {
+    if (!calendarIdentity || typeof calendarIdentity !== 'object') return false;
+    // common markers for delegation; be permissive
+    const markers = [
+      'delegation',
+      'delegated_by',
+      'nip26',
+      'delegate',
+      'delegate_sig',
+      'delegator',
+      'delegate_pubkey',
+      'delegation_sig'
+    ];
+    for (const k of markers) {
+      if (calendarIdentity[k]) return true;
+    }
+    return false;
   }
 
   showSSONotification(username) {
