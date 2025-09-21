@@ -62,7 +62,6 @@ function initEls() {
     authNostr: document.getElementById('auth-nostr'),
     authExtension: document.getElementById('auth-extension'),
     authBunker: document.getElementById('auth-bunker'),
-    authWordPress: document.getElementById('auth-wordpress'),
     
     // Settings in sidebar
     sidebarThemeSelect: document.getElementById('sidebar-theme-select'),
@@ -166,7 +165,7 @@ function setupSidebar() {
 
 // AUTHENTICATION (Direct Plugin Calls)
 async function setupAuthButtons() {
-  const { authNostr, authExtension, authBunker, authWordPress } = els;
+  const { authNostr, authExtension, authBunker } = els;
   
   // Update sidebar auth button states
   const updateAuthButtons = async () => {
@@ -174,12 +173,11 @@ async function setupAuthButtons() {
     const activeName = activePlugin?.name;
     
     // Update active state
-    [authNostr, authExtension, authBunker, authWordPress].forEach(btn => {
+    [authNostr, authExtension, authBunker].forEach(btn => {
       if (btn) btn.classList.remove('active');
     });
     
     if (activeName === 'nostr' && authNostr) authNostr.classList.add('active');
-    if (activeName === 'wordpress' && authWordPress) authWordPress.classList.add('active');
     
     // Update sidebar toggle icon
     if (els.sidebarIcon) {
@@ -244,13 +242,6 @@ async function setupAuthButtons() {
     });
   }
   
-  // WordPress SSO Login
-  if (authWordPress) {
-    authWordPress.addEventListener('click', () => {
-      // Redirect to WordPress SSO
-      window.location.href = '/wp-login.php?redirect_to=' + encodeURIComponent(window.location.href);
-    });
-  }
   
   return { updateAuthButtons };
 }
@@ -433,14 +424,6 @@ async function refresh(){
     
     // Load WordPress events if authenticated via WordPress SSO
     const activePlugin = await authManager.getActivePlugin();
-    if (activePlugin && activePlugin.name === 'wordpress' && typeof activePlugin.getEvents === 'function') {
-      try {
-        const wpEvents = await activePlugin.getEvents();
-        events = events.concat(wpEvents);
-      } catch (wpErr) {
-        console.warn('[App] Failed to load WordPress events:', wpErr);
-      }
-    }
     
   } catch (err) {
     console.error('refresh failed:', err);

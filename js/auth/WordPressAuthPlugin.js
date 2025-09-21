@@ -9,8 +9,8 @@ const {
   nostr_fetch,
   nostr_me,
   nostr_onEvent,
-  login,
-  logout,
+  login_url,
+  logout_url,
 } = nostrModule;
 
 import { AuthPluginInterface } from './AuthPluginInterface.js';
@@ -26,9 +26,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   async initialize() {
     console.log('[WordPressAuth] Initializing WordPress SSO plugin');
-    const sessionData = localStorage.getItem('wp_session');
-    if (sessionData) {
-      this.currentSession = JSON.parse(sessionData);
+    const userData = localStorage.getItem('wp_session');
+    if (userData) {
+      this.currentSession = JSON.parse(userData);
       console.log('[WordPressAuth] Restored session from localStorage');
     }
 
@@ -40,7 +40,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     // Clean URL
     const url = new URL(window.location);
     window.history.replaceState({}, '', url);
-    
+
   }
 
   async isLoggedIn() {
@@ -50,43 +50,123 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   async getIdentity() {
     return await this.getSessionIdentity();
-    
+
   }
 
   async login(credentials = {}) {
-    // wp_login link
+    // Redirect zu WordPress Login
+    const loginUrl = window.NostrSignerConfig?.loginUrl || '/wp-login.php';
+    const redirectTo = credentials.redirectTo || window.location.href;
+    window.location.href = `${loginUrl}?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
 
   async logout() {
-    // wp_logout link
-    
+    // Redirect zu WordPress Logout
+    const logoutUrl = window.NostrSignerConfig?.logoutUrl || '/wp-login.php?action=logout';
+    window.location.href = logoutUrl;
+
+    // Session-Cleanup
+    this.currentSession = null;
+    localStorage.removeItem('wp_session');
   }
 
   async createEvent(eventData) {
     if (!await this.isLoggedIn()) {
-      throw new Error('Not logged in to WordPress SSO');
+      throw new Error('Nicht bei WordPress SSO angemeldet');
     }
 
-    // nostr_send
+    try {
+      // NIP-53 Event formatieren (kind 30311)
+      const nostrEvent = {
+        kind: 30311, // NIP-53 Live Activities
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['title', eventData.title],
+          ['start', eventData.start.toString()],
+          ['end', eventData.end.toString()],
+          ['location', eventData.location || ''],
+          ['description', eventData.description || ''],
+          // NIP-53 spezifische Tags
+          ['p', await this.getPublicKey()], // Author
+          ['t', 'calendar'],
+          ['t', 'meeting']
+        ],
+        content: eventData.content || ''
+      };
+      console.debug('[WordPressAuth] sending event to:', nostrEvent, window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io']) ;
+      // WordPress-Signierung über nostr-app.js
+      const result = await nostr_send(
+        nostrEvent,
+        'user', // WordPress-Benutzer-Schlüssel
+        window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io'],
+        {
+          publish: true,
+          signPayload: {
+            source: 'nostr-calendar-app',
+            wordpress_user_id: this.currentSession?.user?.id
+          }
+        }
+      );
+      console.log('[WordPressAuth] Event published successfully:', result);
+
+      return {
+        success: true,
+        event: result.event,
+        relayResults: result.results
+      };
+
+    } catch (error) {
+      console.error('[WordPressAuth] Event creation failed:', error);
+      throw new Error(`Event-Erstellung fehlgeschlagen: ${error.message}`);
+    }
   }
 
   // delete calendar event by ID
   async deleteEvent(eventId) {
-    
-    // Send NIP-9 DELETE request
+    if (!await this.isLoggedIn()) {
+      throw new Error('Nicht bei WordPress SSO angemeldet');
+    }
+
+    try {
+      // NIP-9 DELETE Event erstellen
+      const deleteEvent = {
+        kind: 5,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['e', eventId], // Referenz auf zu löschendes Event
+          ['k', '30311']  // Kind des zu löschenden Events
+        ],
+        content: 'Event gelöscht'
+      };
+
+      const result = await nostr_send(
+        deleteEvent,
+        'user',
+        window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io'],
+        { publish: true }
+      );
+
+      return {
+        success: true,
+        event: result.event,
+        relayResults: result.results
+      };
+
+    } catch (error) {
+      console.error('[WordPressAuth] Event deletion failed:', error);
+      throw new Error(`Event-Löschung fehlgeschlagen: ${error.message}`);
+    }
   }
 
-  async getEvents() {
-    // get parent method to fetch events
-    return super.getEvents();
-  }
-
+  
   async updateAuthUI(elements) {
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = elements;
-    
-    
+
+
     if (this.currentSession) {
-      // Show WordPress user info 
+      console.log('[WordPressAuth] Logged in via WordPress SSO', this.currentSession);
+
+      // Show WordPress user info
       if (whoami) {
         const identity = await this.getIdentity();
         console.debug('[WordPressAuth] Updating UI for logged in user:', identity);
@@ -95,16 +175,16 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
             <div style="text-align: left;">
               <div style="font-size: 0.75em; color: #999; margin-bottom: 4px;">WordPress SSO</div>
               <div style="margin-bottom: 4px;">
-                <img src="${identity.user.avatar || ''}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 16px; vertical-align: middle; margin-right: 8px;">
-                <strong>${identity.user.display_name || identity.user.username}</strong>
-              </div>  
-              <div style="font-size: 0.85em; color: #666;">Blog: ${identity.blog.display_name || identity.user.username}</div>
-              <div style="font-size: 0.75em; color: #999;">${identity.user.npub || identity.blog.npub.slice(0, 16)}...</div>
+                <img src="${identity.user?.avatar || ''}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 16px; vertical-align: middle; margin-right: 8px;">
+                <strong>${identity.user?.display_name || identity.user?.username}</strong>
+              </div>
+              <div style="font-size: 0.85em; color: #666;">Blog: ${identity.blog?.display_name || identity.user?.username}</div>
+              <div style="font-size: 0.75em; color: #999;">${identity.user?.npub || identity.blog?.npub.slice(0, 16)}...</div>
             </div>
           `;
         }
       }
-      
+
       // Hide login elements, show logout
       if (btnLoginMenu) btnLoginMenu.style.display = 'none';
       if (btnLogin) btnLogin.style.display = 'none';
@@ -126,9 +206,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   setupUI(elements, onChange) {
     // remove .sidebar-section.authsection if exists
-    const authSection = document.querySelector('.sidebar-section.authsection');
+    const authSection = document.querySelector('.sidebar-section.auth');
     if (authSection) {
-      authSection.remove();
+      authSection.style.display = 'none';
     }
 
     console.log('[WordPressAuth] UI setup - WordPress SSO uses external login flow');
@@ -136,19 +216,19 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   async getPublicKey() {
     const identity = await this.getIdentity();
-    return identity?.pubkey || null;
+    return identity?.user?.pubkey || null;
   }
 
   async getDisplayName() {
     const identity = await this.getIdentity();
-    return identity?.displayName || null;
+    return identity?.user?.display_name || null;
   }
 
-  
 
-  
+
   // Helper methods
   async getSession() {
+    console.log('[WordPressAuth] Retrieving session');
     if (this.currentSession) {
       return this.currentSession;
     }else{
@@ -159,19 +239,31 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         return this.currentSession;
       }else{
         // fetch from /me endpoint
-        const sessionData = await nostr_me();
-        if (sessionData) {
-          sessionData.calendarIdentity.user.display_name = sessionData.user.display_name || {};
-          sessionData.calendarIdentity.user.pubkey = sessionData.user.pubkey.hex;
-          sessionData.calendarIdentity.user.npub  = sessionData.user.pubkey.npub;
-          sessionData.calendarIdentity.blog.display_name = sessionData.blog.blog_name;
-          sessionData.calendarIdentity.blog.npub = sessionData.blog.pubkey.npub;
-          sessionData.calendarIdentity.user.avatar = sessionData.user.avatar_url?.['96'] || '';
-          this.currentSession = sessionData;
-          localStorage.setItem('wp_session', JSON.stringify(sessionData));
-          return sessionData;
+        console.log('[WordPressAuth] Fetching session data from /me');
+        const userData = await nostr_me();
+        console.log('[WordPressAuth] Fetched session data from /me:', userData);
+        if (userData) {
+          const data = {
+            user: {},
+            calendarIdentity: {}
+          };
+          data.user = {
+            pubkey: userData.user.pubkey.hex,
+            npub: userData.user.pubkey.npub,
+            username: userData.user.username,
+            display_name: userData.user.display_name || userData.user.username,
+            avatar: userData.user.avatar_url || ''
+          };
+          data.blog = {
+            pubkey: userData.blog.pubkey.hex,
+            npub: userData.blog.pubkey.npub,
+            display_name: userData.blog.blog_name || 'Blog',
+          };
+          this.currentSession = data;
+          localStorage.setItem('wp_session', JSON.stringify(data));
+          return data;
         }
-      }
+      } 
     }
     return null;
   }
@@ -180,11 +272,14 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     if (!session) {
       return null;
     }
-    return session.calendarIdentity;
+    
+    return session;
+  }
+
+  async checkLocalSession() {
+    console.log('[WordPressAuth] Checking local session');
+    return await this.getSession();
   }
 
 
-  
-
-  
 }
