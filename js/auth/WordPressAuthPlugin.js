@@ -76,9 +76,9 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     }
 
     try {
-      // NIP-53 Event formatieren (kind 30311)
+      // NIP-52 Event formatieren (kind 31923)
       const nostrEvent = {
-        kind: 30311, // NIP-53 Live Activities
+        kind: 31923, // NIP-52 Live Activities
         created_at: Math.floor(Date.now() / 1000),
         tags: [
           ['title', eventData.title],
@@ -86,7 +86,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           ['end', eventData.end.toString()],
           ['location', eventData.location || ''],
           ['description', eventData.description || ''],
-          // NIP-53 spezifische Tags
+          // NIP-52 spezifische Tags
           ['p', await this.getPublicKey()], // Author
           ['t', 'calendar'],
           ['t', 'meeting']
@@ -134,7 +134,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         created_at: Math.floor(Date.now() / 1000),
         tags: [
           ['e', eventId], // Referenz auf zu löschendes Event
-          ['k', '30311']  // Kind des zu löschenden Events
+          ['k', '31923']  // Kind des zu löschenden Events
         ],
         content: 'Event gelöscht'
       };

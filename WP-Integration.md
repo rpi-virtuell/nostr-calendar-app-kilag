@@ -118,7 +118,7 @@ window.NostrSignerConfig = {
 
 ### Event-Management
 
-#### NIP-53 Event-Erstellung
+#### NIP-52 Event-Erstellung
 
 ```javascript
 // WordPress-SSO Modus
@@ -130,7 +130,7 @@ const eventData = {
     description: 'Wöchentliches Team-Meeting'
 };
 
-// Automatische NIP-53 Formatierung (kind 30311)
+// Automatische NIP-52 Formatierung (kind 31923)
 const result = await authManager.createEvent(eventData);
 ```
 
@@ -180,7 +180,7 @@ class WordPressAuthPlugin extends AuthPluginInterface {
     async getIdentity() // WordPress-Benutzer-Info
     async login(credentials) // WordPress-Login
     async logout() // WordPress-Logout
-    async createEvent(eventData) // NIP-53 Event-Erstellung
+    async createEvent(eventData) // NIP-52 Event-Erstellung
     async deleteEvent(eventId) // NIP-9 Event-Löschung
     async getPublicKey() // Öffentlicher WordPress-Schlüssel
     async getDisplayName() // WordPress-Benutzername
@@ -237,7 +237,7 @@ console.log('[WordPressAuth] Session:', session);
 ### Zusätzliche Event-Types
 
 ```javascript
-// Erweiterte NIP-53 Event-Types
+// Erweiterte NIP-52 Event-Types
 const eventTypes = {
     meeting: ['t', 'meeting'],
     appointment: ['t', 'appointment'],
@@ -314,7 +314,7 @@ await authManager.updateConfig({
 ## Roadmap
 
 ### Version 1.1
-- [ ] Erweiterte NIP-53 Event-Types
+- [ ] Erweiterte NIP-52 Event-Types
 - [ ] Multi-Relay-Support mit Failover
 - [ ] Verbesserte UI für WordPress-Integration
 

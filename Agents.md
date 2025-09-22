@@ -52,14 +52,14 @@ graph TB
 **Status**: In Bearbeitung
 
 **Aufgaben**:
-- [x] NIP-53 Event-Formatierung implementieren (kind 30311)
+- [x] NIP-52 Event-Formatierung implementieren (kind 31923)
 - [x] createEvent() Methode mit WordPress-Signierung
 - [x] deleteEvent() Methode mit NIP-9 DELETE Events
 - [x] login()/logout() Methoden implementieren
 - [x] WordPress-REST-API Integration
 
 **Technische Details**:
-- Event-Kind: 30311 (NIP-53 Live Activities)
+- Event-Kind: 31923 (NIP-52 Live Activities)
 - Signierung über `/wp-json/nostr-signer/v1/sign-event`
 - Authentifizierung über WordPress-Session
 - Relay-Publikation über nostr-app.js
@@ -87,7 +87,7 @@ graph TB
 
 **Aufgaben**:
 - [ ] WordPress-SSO-Authentifizierung testen
-- [ ] NIP-53 Event-Signierung testen
+- [ ] NIP-52 Event-Signierung testen
 - [ ] Standalone-Betrieb testen
 - [ ] Integration zwischen Modi testen
 
@@ -102,10 +102,10 @@ graph TB
 
 ## Technische Spezifikationen
 
-### NIP-53 Event Format
+### NIP-52 Event Format
 ```javascript
 const nostrEvent = {
-  kind: 30311, // NIP-53 Live Activities
+  kind: 31923, // NIP-52 Live Activities
   created_at: Math.floor(Date.now() / 1000),
   tags: [
     ['title', eventData.title],
@@ -212,7 +212,7 @@ nostr-calendar-app/
 
 ### WordPress-Modus
 - [ ] WordPress-SSO Login funktioniert
-- [ ] NIP-53 Events werden korrekt signiert
+- [ ] NIP-52 Events werden korrekt signiert
 - [ ] Events werden an Relays publiziert
 - [ ] Event-Löschung funktioniert (NIP-9)
 - [ ] Session-Management funktioniert
@@ -270,7 +270,7 @@ nostr-calendar-app/
 
 ## Nächste Schritte
 
-1. **Sofort**: WordPressAuthPlugin.js mit NIP-53 Support implementieren
+1. **Sofort**: WordPressAuthPlugin.js mit NIP-52 Support implementieren
 2. **Kurzfristig**: Dateien kopieren und WordPress-Plugin erstellen
 3. **Mittelfristig**: Umfassende Tests durchführen
 4. **Langfristig**: Dokumentation und Benutzerführung erstellen
