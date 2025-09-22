@@ -619,11 +619,14 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       // -------- FAST PATH --------
       // 1) schnellsten Relay messen
       const fastRelay = await this.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+      // console.debug('[fetchEvents] fastRelay:', fastRelay);
       // 2) kleines Limit für schnellen „first paint“
       const fastFilter = { ...filter, limit: Math.min(250, filter.limit || 250) };
+      // console.debug('[fetchEvents] fastFilter:', fastFilter);
       // 3) Single-relay REQ (EOSE) → in der Praxis ~wie dein Test
       let fast = [];
       try { fast = await this.listByWebSocketOne(fastRelay, fastFilter, 2500); } catch { fast = []; }
+      // console.debug('[fetchEvents] fast path got', (fast || []));
       if (fast.length) {
         // dedupe + sorten und direkt zurückgeben (spürbar schneller)
         const latest = new Map();
