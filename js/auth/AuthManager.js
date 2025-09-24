@@ -253,19 +253,10 @@ export class AuthManager {
     // Check if we're running in a WordPress environment
     if (typeof window !== 'undefined') {
       // Check for WordPress-specific global variables
-      if (window.nostrCalendarWP && window.nostrCalendarWP.sso && window.nostrCalendarWP.sso.enabled) {
+      if (window.NostrSignerConfig && window.NostrSignerConfig.enabled) {
         return true;
       }
       
-      // Check for WordPress SSO configuration
-      if (window.nostrCalendarSSO && window.nostrCalendarSSO.enabled) {
-        return true;
-      }
-      
-      // Check for WordPress REST API availability
-      if (window.nostrCalendarWP && window.nostrCalendarWP.apiUrl) {
-        return true;
-      }
     }
     
     return false;
