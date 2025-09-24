@@ -73,16 +73,6 @@ a{color:var(--primary);text-decoration:none}
 .btn-ghost{background:transparent}
 .btn-small{font-size:12px;padding:6px 8px;border-radius:8px}
 
-/* Delegation UI Styles */
-.delegation-panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin:16px 0}
-.delegation-panel h3{margin:0 0 12px 0;font-size:16px;display:flex;align-items:center;gap:8px}
-.delegation-info{padding:12px;border-radius:8px}
-.delegation-active{background:var(--success-bg,#d4edda);border:1px solid var(--success-border,#c3e6cb);color:var(--success-text,#155724)}
-.delegation-inactive{background:var(--warning-bg,#fff3cd);border:1px solid var(--warning-border,#ffeaa7);color:var(--warning-text,#856404)}
-.status-indicator{font-size:14px;margin-right:8px}
-.delegation-details{margin:8px 0;font-size:12px;opacity:0.8}
-.delegation-details small{display:block;margin:2px 0}
-
 .grid{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--gap)}
 
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}

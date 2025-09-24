@@ -1,18 +1,12 @@
 // js/auth/WordPressAuthPlugin.js
 // WordPress SSO authentication plugin
 
-const moduleUrl = `${window.NostrSignerConfig.pluginUrl}assets/js/nostr-app.js`;
-const nostrModule = await import(moduleUrl);
-const {
-  configureNostr,
-  nostr_send,
-  nostr_fetch,
-  nostr_me,
-  nostr_onEvent,
-  login_url,
-  logout_url,
-} = nostrModule;
-
+if(window.WP_NostrTools){
+  const nostr_send = window.WP_NostrTools?.nostr_send;
+  const nostr_me = window.WP_NostrTools?.nostr_me;
+} else {
+  console.error('WP_NostrTools is not available. Make sure nostr-app.js is loaded from WP Plugin NostrSigner Wrapper Plugin - > App Wrapper');
+}
 import { AuthPluginInterface } from './AuthPluginInterface.js';
 
 
