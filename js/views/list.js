@@ -65,67 +65,16 @@ function createEventTile(e) {
   tile.setAttribute('role', 'button');
   tile.setAttribute('aria-label', `Event: ${titleTag}`);
 
-  // Tile Header (Bild)
-  const header = document.createElement('div');
-  header.className = 'tile-header';
-  if(image){
-    header.style.backgroundImage = `url(${image})`;
-  } else {
-    // Placeholder für Events ohne Bild
-    header.style.background = 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))';
-    header.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: white; font-size: 2rem;">📅</div>';
-  }
-
-  // Tile Body (Inhalt)
-  const body = document.createElement('div');
-  body.className = 'tile-body';
-
-  const title = document.createElement('h3');
-  title.className = 'tile-title';
-  title.textContent = titleTag;
-  title.style.fontSize = 'var(--tile-title-size)';
-  title.style.margin = '0 0 var(--space-sm) 0';
-  title.style.fontWeight = '600';
-
-  const meta = document.createElement('div');
-  meta.className = 'tile-meta';
-  meta.style.fontSize = 'var(--tile-meta-size)';
-  meta.style.color = 'rgba(255,255,255,0.9)';
-  meta.style.marginBottom = 'var(--space-sm)';
-
-  const metaWhen = document.createElement('div');
-  metaWhen.className = 'meta-when';
-  metaWhen.textContent = formatDateRange(startS, endS);
-
-  const metaWhere = document.createElement('div');
-  metaWhere.className = 'meta-where';
-  if(where) {
-    metaWhere.innerHTML = `<span style="opacity: 0.8;">📍</span> ${where}`;
-  }
-
-  meta.appendChild(metaWhen);
-  if(where) meta.appendChild(metaWhere);
-
-  const tileSummary = document.createElement('div');
-  tileSummary.className = 'tile-summary';
-  tileSummary.textContent = summary || 'Keine Beschreibung verfügbar.';
-  tileSummary.style.fontSize = '0.9rem';
-  tileSummary.style.lineHeight = '1.4';
-  tileSummary.style.marginBottom = 'var(--space-sm)';
-  tileSummary.style.opacity = '0.9';
-
-  // Tags
+  // Tile Tags (oben rechts, außerhalb des wrappers)
   const tagsContainer = document.createElement('div');
   tagsContainer.className = 'tile-tags';
-  tagsContainer.style.display = 'flex';
-  tagsContainer.style.flexWrap = 'wrap';
-  tagsContainer.style.gap = 'var(--space-xs)';
 
   tagList.forEach(t => {
-    const tagBadge = document.createElement('span');
+    const tagBadge = document.createElement('button');
     tagBadge.className = 'tag-badge';
     tagBadge.textContent = t;
-    tagBadge.style.fontSize = 'var(--tag-badge-size)';
+    tagBadge.setAttribute('data-tag', t);
+    tagBadge.setAttribute('title', 'Nach Tag filtern');
     tagBadge.addEventListener('click', (event) => {
       event.stopPropagation();
       // Event für Tag-Filter auslösen
@@ -137,19 +86,113 @@ function createEventTile(e) {
 
   // Status-Badge
   if(status !== 'planned'){
-    const statusBadge = document.createElement('span');
+    const statusBadge = document.createElement('button');
     statusBadge.className = 'tag-badge';
     statusBadge.textContent = status;
+    statusBadge.setAttribute('data-tag', status);
+    statusBadge.setAttribute('title', 'Status: ' + status);
     statusBadge.style.backgroundColor = 'var(--color-warning)';
     tagsContainer.appendChild(statusBadge);
   }
 
+  // Event Wrapper
+  const wrapper = document.createElement('div');
+  wrapper.className = 'event-wrapper';
+
+  // Tile Header mit Date Bubble
+  const header = document.createElement('div');
+  header.className = 'tile-header';
+
+  if(image){
+    header.style.backgroundImage = `url(${image})`;
+  } else {
+    // Placeholder für Events ohne Bild
+    header.style.background = 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))';
+  }
+
+  // Tile Overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'tile-overlay';
+
+  // Date Bubble
+  const dateBubble = document.createElement('div');
+  dateBubble.className = 'date-bubble';
+  dateBubble.setAttribute('aria-hidden', 'true');
+
+  if (startS) {
+    const startDate = new Date(startS * 1000);
+    const year = startDate.getFullYear();
+    const day = startDate.getDate();
+    const month = startDate.toLocaleDateString('de-DE', { month: 'short' });
+
+    dateBubble.innerHTML = `
+      <div class="date-bubble-year">${year}</div>
+      <div class="date-bubble-day">${day}</div>
+      <div class="date-bubble-month">${month}</div>
+    `;
+  }
+
+  overlay.appendChild(dateBubble);
+  header.appendChild(overlay);
+
+  // Tile Body
+  const body = document.createElement('div');
+  body.className = 'tile-body';
+
+  // Title
+  const title = document.createElement('h3');
+  title.className = 'tile-title';
+  title.textContent = titleTag;
+
+  // Meta Information
+  const meta = document.createElement('div');
+  meta.className = 'tile-meta';
+
+  // Zeit
+  if (startS) {
+    const metaTime = document.createElement('p');
+    const timeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"></path></svg>';
+    metaTime.innerHTML = `${timeIcon}<span>${formatDateRange(startS, endS)}</span>`;
+    meta.appendChild(metaTime);
+  }
+
+  // Ort
+  if (where) {
+    const metaLocation = document.createElement('p');
+    const locationIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path></svg>';
+    if (where.startsWith('http')) {
+      metaLocation.innerHTML = `${locationIcon}<span><a href="${where}" target="_blank" rel="noopener noreferrer">${where}</a></span>`;
+    } else {
+      metaLocation.innerHTML = `${locationIcon}<span>${where}</span>`;
+    }
+    meta.appendChild(metaLocation);
+  }
+
+  // Autor (falls verfügbar)
+  const author = tags.find(t=>t[0]==='p')?.[1];
+  if (author) {
+    const metaAuthor = document.createElement('p');
+    const authorIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>';
+    metaAuthor.innerHTML = `${authorIcon}<span>${author}</span>`;
+    meta.appendChild(metaAuthor);
+  }
+
+  // Ghost für Layout
+  const ghost = document.createElement('div');
+  ghost.className = 'tile-ghost';
+  ghost.setAttribute('aria-hidden', 'true');
+
+  // Summary
+  const tileSummary = document.createElement('p');
+  tileSummary.className = 'tile-summary';
+  tileSummary.textContent = summary || 'Keine Beschreibung verfügbar.';
+
   body.appendChild(title);
   body.appendChild(meta);
+  body.appendChild(ghost);
   body.appendChild(tileSummary);
-  body.appendChild(tagsContainer);
 
-  // Tile Toolbar (Footer)
+  // Tile Toolbar
   const toolbar = document.createElement('div');
   toolbar.className = 'tile-toolbar';
 
@@ -161,10 +204,8 @@ function createEventTile(e) {
 
   // Bearbeiten Button
   const editBtn = document.createElement('button');
-  editBtn.className = 'btn btn-primary';
+  editBtn.className = 'btn secondary edit-btn';
   editBtn.textContent = 'Bearbeiten';
-  editBtn.style.fontSize = '0.9rem';
-  editBtn.style.padding = '8px 12px';
   editBtn.addEventListener('click', (event) => {
     event.stopPropagation();
     const ev = new CustomEvent('edit-event', { detail: { event: e, d: dtag } });
@@ -173,26 +214,27 @@ function createEventTile(e) {
 
   // Details Button
   const detailsBtn = document.createElement('button');
-  detailsBtn.className = 'btn btn-ghost';
+  detailsBtn.className = 'btn primary show-btn';
   detailsBtn.textContent = 'Details ansehen';
-  detailsBtn.style.fontSize = '0.9rem';
-  detailsBtn.style.padding = '8px 12px';
   detailsBtn.addEventListener('click', (event) => {
     event.stopPropagation();
     const detailEvent = new CustomEvent('view-event-detail', { detail: { event: e } });
     window.dispatchEvent(detailEvent);
   });
 
-  toolbarRight.appendChild(editBtn);
+  toolbarLeft.appendChild(editBtn);
   toolbarRight.appendChild(detailsBtn);
 
   toolbar.appendChild(toolbarLeft);
   toolbar.appendChild(toolbarRight);
 
   // Event-Tile zusammensetzen
-  tile.appendChild(header);
-  tile.appendChild(body);
-  tile.appendChild(toolbar);
+  tile.appendChild(tagsContainer); // Tags zuerst, damit sie über dem wrapper liegen
+  tile.appendChild(wrapper);
+
+  wrapper.appendChild(header);
+  wrapper.appendChild(body);
+  wrapper.appendChild(toolbar);
 
   // Klick auf Tile für Detail-Ansicht
   tile.addEventListener('click', (event) => {

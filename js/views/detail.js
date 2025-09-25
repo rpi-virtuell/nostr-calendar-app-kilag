@@ -20,6 +20,10 @@ const DetailModalManager = {
       return;
     }
 
+    // Stelle sicher, dass das Modal geschlossen ist
+    this.modal.style.display = 'none';
+    this.modal.open = false;
+
     // Event-Listener für Modal-Interaktionen
     this.bindEvents();
   },
@@ -33,22 +37,30 @@ const DetailModalManager = {
     const closeDetailBtn = document.getElementById('btn-close-detail');
 
     if (closeBtn) {
-      closeBtn.addEventListener('click', () => this.hide());
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.hide();
+      });
     }
 
     if (closeDetailBtn) {
-      closeDetailBtn.addEventListener('click', () => this.hide());
+      closeDetailBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.hide();
+      });
     }
 
     // Bearbeiten Button
     const editBtn = document.getElementById('btn-edit-from-detail');
     if (editBtn) {
-      editBtn.addEventListener('click', () => {
+      editBtn.addEventListener('click', (e) => {
+        e.preventDefault();
         if (this.currentEvent) {
+          const tags = this.currentEvent.tags || [];
           const editEvent = new CustomEvent('edit-event', {
             detail: {
               event: this.currentEvent,
-              d: this.currentEvent.tags.find(t=>t[0]==='d')?.[1]
+              d: tags.find(t=>t[0]==='d')?.[1]
             }
           });
           window.dispatchEvent(editEvent);
@@ -60,6 +72,7 @@ const DetailModalManager = {
     // Keyboard Events
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.isOpen()) {
+        e.preventDefault();
         this.hide();
       }
     });
@@ -67,6 +80,7 @@ const DetailModalManager = {
     // Klick außerhalb des Modals
     this.modal.addEventListener('click', (e) => {
       if (e.target === this.modal) {
+        e.preventDefault();
         this.hide();
       }
     });
@@ -81,6 +95,7 @@ const DetailModalManager = {
 
     this.currentEvent = event;
     this.updateContent(event);
+    this.modal.style.display = 'flex';
     this.modal.showModal();
     this.updateURL(event);
 
@@ -97,6 +112,8 @@ const DetailModalManager = {
   hide() {
     if (this.modal) {
       this.modal.close();
+      this.modal.style.display = 'none';
+      this.modal.open = false;
       this.restoreURL();
     }
   },
@@ -106,7 +123,7 @@ const DetailModalManager = {
    * @returns {boolean}
    */
   isOpen() {
-    return this.modal && this.modal.open;
+    return this.modal && this.modal.open && this.modal.style.display !== 'none';
   },
 
   /**

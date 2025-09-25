@@ -114,27 +114,40 @@
   <!-- Sidebar Overlay -->
   <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
 
-    <!-- Nur noch die Filter in der Toolbar (wird in Monatsansicht versteckt) -->
-  <section class="toolbar" id="toolbar">
-    <div class="toolbar-row" id="filter-row">
-      <div class="field">
-        <label>Tags</label>
-        <input id="tag-search" placeholder="Tag suchen & Enter zum Hinzufügen" />
-        <div id="selected-tags" class="chips"></div>
+  <!-- Filter Toolbar -->
+  <section class="filter-toolbar" id="filter-toolbar" aria-label="Terminfilter">
+    <div class="filter-row" id="filter-row">
+      <!-- Tag Selector -->
+      <div class="field tagbox" style="flex:1 1 360px;">
+        <label for="tag-input">Tags</label>
+        <input id="tag-input" class="tag-input" type="text" placeholder="Tag suchen & Enter zum Hinzufügen" autocomplete="off" aria-describedby="tag-help">
+        <div id="tag-suggest" class="suggest" role="listbox" aria-label="Tag-Vorschläge"></div>
+        <div id="tag-help" class="field-help">Klicke auf Tags oder nutze die Filterleiste, um die Ansicht einzugrenzen.</div>
       </div>
-      <div class="field">
-        <label>Suche</label>
-        <input id="text-search" placeholder="Titel & Tags durchsuchen…" />
+
+      <!-- Text Search -->
+      <div class="field" style="flex:1 1 280px;">
+        <label for="search-input">Suche</label>
+        <input id="search-input" type="text" placeholder="Titel & Tags durchsuchen …">
       </div>
-      <div class="field">
+
+      <!-- Month Dropdown -->
+      <div class="field" style="flex:0 0 220px;">
         <label for="month-select">Monat</label>
         <select id="month-select" aria-label="Monat wählen">
           <option value="">Alle Monate</option>
         </select>
       </div>
-      
+
+      <!-- Reset / Result -->
+      <button id="reset-filters" class="btn ghost" title="Alle Filter zurücksetzen">Zurücksetzen</button>
+      <div class="result-info" id="result-info">–</div>
     </div>
-</section>
+
+    <div class="filter-row">
+      <div id="selected-tags" class="selected-tags" aria-live="polite"></div>
+    </div>
+  </section>
 
   <main>
     <div id="result-info" class="result-info">–</div>
@@ -220,7 +233,7 @@
   </dialog>
 
   <!-- Modal: Event Detail View -->
-  <dialog id="event-detail-modal" class="modal">
+  <dialog id="event-detail-modal" class="modal" style="display: none;">
     <header class="modal-header">
       <h2 id="detail-modal-title">Event Details</h2>
       <button id="close-detail-modal" class="btn btn-ghost" title="Schließen">✕</button>
@@ -310,6 +323,7 @@
     </div>
   </dialog>
 
+  <script type="module" src="./js/filter.js"></script>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

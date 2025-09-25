@@ -12,6 +12,7 @@ import { on, chip } from './utils.js';
 import { setupBunkerEvents, initNip46FromUrl, connectBunker } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
+import { FilterManager } from './filter.js';
 
 // New Plugin-based Authentication System
 import { AuthManager } from './auth/AuthManager.js';
@@ -35,22 +36,22 @@ let currentView = localStorage.getItem('view') || 'cards';
 let monthView;
 
 function initEls() {
-   els = {
-     grid: document.getElementById('event-wall'), // Updated to use event-wall container
-     info: document.getElementById('result-info'),
-    monthSelect: document.getElementById('month-select'),
-    tagSearch: document.getElementById('tag-search'),
-    selectedTags: document.getElementById('selected-tags'),
-    textSearch: document.getElementById('text-search'),
-    btnNew: document.getElementById('btn-new'),
-    btnRefresh: document.getElementById('btn-refresh'),
-    modal: document.getElementById('event-modal'),
-    btnCloseModal: document.getElementById('close-modal'),
-    btnSave: document.getElementById('btn-save'),
-    btnCancelEvent: document.getElementById('btn-cancel-event'),
-    btnDelete: document.getElementById('btn-delete'),
-    whoami: document.getElementById('whoami'),
-    btnLogout: document.getElementById('btn-logout'),
+    els = {
+      grid: document.getElementById('event-wall'), // Updated to use event-wall container
+      info: document.getElementById('result-info'),
+     monthSelect: document.getElementById('month-select'),
+     tagSearch: document.getElementById('tag-input'), // Updated to new filter system
+     selectedTags: document.getElementById('selected-tags'),
+     textSearch: document.getElementById('search-input'), // Updated to new filter system
+     btnNew: document.getElementById('btn-new'),
+     btnRefresh: document.getElementById('btn-refresh'),
+     modal: document.getElementById('event-modal'),
+     btnCloseModal: document.getElementById('close-modal'),
+     btnSave: document.getElementById('btn-save'),
+     btnCancelEvent: document.getElementById('btn-cancel-event'),
+     btnDelete: document.getElementById('btn-delete'),
+     whoami: document.getElementById('whoami'),
+     btnLogout: document.getElementById('btn-logout'),
     
     // New Sidebar Elements
     sidebarToggle: document.getElementById('sidebar-toggle'),
@@ -359,79 +360,103 @@ function setupUpload() {
 
 // LIST + FILTER
 function applyFilters(){
-  let out = [...state.events];
+   console.log('[App] ApplyFilters aufgerufen mit:', {
+     events: state.events.length,
+     selectedTags: Array.from(state.selectedTags),
+     textSearch: state.textSearch,
+     month: state.month
+   });
 
-  if(state.month){
-    out = out.filter(e=>{
-      const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1]||e.tags.find(t=>t[0]==='start')?.[1] || 0);
-      const d = new Date(startS*1000);
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-      return key===state.month;
-    });
-  }
-  if(state.selectedTags.size){
-    out = out.filter(e=>{
-      const evTags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase());
-      return [...state.selectedTags].every(t=> evTags.includes(t.toLowerCase()));
-    });
-  }
-  if(state.textSearch){
-    out = out.filter(e=>{
-      const title = e.tags.find(t=>t[0]==='title')?.[1].toLowerCase() || '';
-      const tags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase()).join(' ');
-      return (title+' '+tags).includes(state.textSearch);
-    });
-  }
+   let out = [...state.events];
 
-  state.filtered = out;
-  if (els.info) els.info.textContent = `${out.length} Treffer`;
-  renderCurrentView();
-}
+   if(state.month){
+     console.log('[App] Filtere nach Monat:', state.month);
+     out = out.filter(e=>{
+       const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1]||e.tags.find(t=>t[0]==='start')?.[1] || 0);
+       const d = new Date(startS*1000);
+       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+       return key===state.month;
+     });
+   }
+   if(state.selectedTags.size){
+     console.log('[App] Filtere nach Tags:', Array.from(state.selectedTags));
+     out = out.filter(e=>{
+       const evTags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase());
+       return [...state.selectedTags].every(t=> evTags.includes(t.toLowerCase()));
+     });
+   }
+   if(state.textSearch){
+     console.log('[App] Filtere nach Text:', state.textSearch);
+     out = out.filter(e=>{
+       const title = e.tags.find(t=>t[0]==='title')?.[1].toLowerCase() || '';
+       const tags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase()).join(' ');
+       return (title+' '+tags).includes(state.textSearch);
+     });
+   }
+
+   console.log('[App] Gefilterte Events:', out.length);
+   state.filtered = out;
+
+   // FilterManager über Ergebnisse informieren
+   if (window.filterManager) {
+     window.filterManager.updateResultCount(out.length);
+   }
+
+   if (els.info) els.info.textContent = `${out.length} Treffer`;
+   renderCurrentView();
+ }
 
 function renderCurrentView(){
-  // Wähle die Datenquelle: gefiltert, sonst alle
-  const data = state.filtered.length ? state.filtered : state.events;
+   // Wähle die Datenquelle: gefiltert, sonst alle
+   const data = state.filtered.length ? state.filtered : state.events;
+   console.log('[App] RenderCurrentView mit Daten:', data.length, 'Events (gefiltert aus', state.events.length, 'total)');
 
-  if(currentView === 'month'){
-    // Monatsansicht: Grid verstecken, Month zeigen
-    if (els.grid) els.grid.classList.add('hidden');
-    if (els.monthGrid) els.monthGrid.classList.remove('hidden');
-    // (Toolbar/Filter in der Monatsansicht ausblenden)
-    if (els.toolbar) els.toolbar.classList.add('hidden');
-    // Falls ein spezieller Monat gewählt wurde, anwenden
-    if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
-    if (monthView) monthView.render(data);
-  } else {
-    data.sort((a,b)=> {
-      const aS = Number(a.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
-      const bS = Number(b.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
-      return aS - bS;
-    });
-    // Kartenansicht: Month verstecken, Grid zeigen
-    if (els.monthGrid) els.monthGrid.classList.add('hidden');
-    if (els.grid) els.grid.classList.remove('hidden');
-    // Filter in Kartenansicht sichtbar
-    if (els.toolbar) els.toolbar.classList.remove('hidden');
-    renderGrid(els.grid, data);
-  }
-}
+   if(currentView === 'month'){
+     console.log('[App] Zeige Monatsansicht');
+     // Monatsansicht: Grid verstecken, Month zeigen
+     if (els.grid) els.grid.classList.add('hidden');
+     if (els.monthGrid) els.monthGrid.classList.remove('hidden');
+     // (Toolbar/Filter in der Monatsansicht ausblenden)
+     if (els.toolbar) els.toolbar.classList.add('hidden');
+     // Falls ein spezieller Monat gewählt wurde, anwenden
+     if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
+     if (monthView) monthView.render(data);
+   } else {
+     console.log('[App] Zeige Kartenansicht mit', data.length, 'Events');
+     data.sort((a,b)=> {
+       const aS = Number(a.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
+       const bS = Number(b.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
+       return aS - bS;
+     });
+     // Kartenansicht: Month verstecken, Grid zeigen
+     if (els.monthGrid) els.monthGrid.classList.add('hidden');
+     if (els.grid) els.grid.classList.remove('hidden');
+     // Filter in Kartenansicht sichtbar
+     if (els.toolbar) els.toolbar.classList.remove('hidden');
+     renderGrid(els.grid, data);
+   }
+ }
 
 async function refresh(){
-  if (els.info) els.info.textContent = 'Lade…';
-  let events = [];
-  try {
-    // Load events from Nostr relays
-    events = await client.fetchEvents({ sinceDays: 1000 });
-    
-    // Load WordPress events if authenticated via WordPress SSO
-    const activePlugin = await authManager.getActivePlugin();
-    
-  } catch (err) {
-    console.error('refresh failed:', err);
-    if (els.info) els.info.textContent = 'Fehler beim Laden.';
-  }
-  updateData(events);
-}
+   console.log('[App] Refresh aufgerufen');
+   if (els.info) els.info.textContent = 'Lade…';
+   let events = [];
+   try {
+     // Load events from Nostr relays
+     console.log('[App] Lade Events von Nostr Relays');
+     events = await client.fetchEvents({ sinceDays: 1000 });
+     console.log('[App] Events geladen:', events.length);
+
+     // Load WordPress events if authenticated via WordPress SSO
+     const activePlugin = await authManager.getActivePlugin();
+
+   } catch (err) {
+     console.error('refresh failed:', err);
+     if (els.info) els.info.textContent = 'Fehler beim Laden.';
+   }
+   console.log('[App] UpdateData mit Events:', events.length);
+   updateData(events);
+ }
 
 // Show general notification
 function showNotification(message, type = 'info') {
@@ -470,10 +495,19 @@ function showNotification(message, type = 'info') {
 }
 
 function updateData(events) {
-  state.events = events;
-  buildMonthOptions(els.monthSelect, events);
-  applyFilters();
-}
+   console.log('[App] UpdateData mit Events:', events.length);
+   state.events = events;
+   window.allEvents = events; // Für FilterManager verfügbar machen
+   buildMonthOptions(els.monthSelect, events);
+
+   // FilterManager über neue Events informieren
+   if (window.filterManager) {
+     console.log('[App] Lade Tags für FilterManager');
+     window.filterManager.loadTags();
+   }
+
+   applyFilters();
+  }
 
 // Initialize Authentication Plugin System
 async function initializeAuthPlugins() {
@@ -503,16 +537,17 @@ async function initializeAuthPlugins() {
 
 // DOM ready und Setup
 document.addEventListener('DOMContentLoaded', async () => {
-  initEls();
-  
-  // MonthView initialisieren (vor View-Setup)
-  monthView = new MonthView(els.monthGrid);
-  
-  // Theme (only sidebar theme selector now)
-  applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
-  
-  // Initialize Auth Plugins (includes WordPress SSO check)
-  await initializeAuthPlugins();
+   console.log('[App] DOMContentLoaded - Initialisiere App');
+   initEls();
+
+   // MonthView initialisieren (vor View-Setup)
+   monthView = new MonthView(els.monthGrid);
+
+   // Theme (only sidebar theme selector now)
+   applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
+
+   // Initialize Auth Plugins (includes WordPress SSO check)
+   await initializeAuthPlugins();
   
   // Setup New Sidebar System
   const sidebarControls = setupSidebar();
@@ -567,22 +602,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupICSExport(els.btnICSExport, () => state);
   setupICSImport(els.btnICSImport, client, fillFormFromEvent, els.progressModal, els.progressBar, els.progressText, els.modal, clearForm, setEditableChips);
 
-  // Filter Events
-  on(els.tagSearch, 'keydown', (e)=>{
-    if(e.key==='Enter'){
-      e.preventDefault();
-      const v = els.tagSearch.value.trim();
-      if(!v) return;
-      if(!state.selectedTags.has(v)){
-        state.selectedTags.add(v);
-        els.selectedTags.appendChild(createTagChip(v));
-        applyFilters();
-      }
-      els.tagSearch.value='';
+  // Filter Events - Integration mit dem neuen FilterManager
+  window.addEventListener('filter-change', (e) => {
+    console.log('[App] Filter-Change Event empfangen:', e.detail);
+    const { type, value, selectedTags } = e.detail;
+
+    // Update state basierend auf Filter-Änderungen
+    switch (type) {
+      case 'tag':
+        // selectedTags enthält alle aktuell ausgewählten Tags
+        state.selectedTags = new Set(selectedTags || []);
+        console.log('[App] Tags aktualisiert:', Array.from(state.selectedTags));
+        break;
+      case 'search':
+        state.textSearch = value.toLowerCase();
+        console.log('[App] Suchtext aktualisiert:', state.textSearch);
+        break;
+      case 'month':
+        state.month = value;
+        console.log('[App] Monat aktualisiert:', state.month);
+        break;
+      case 'reset':
+        state.selectedTags.clear();
+        state.textSearch = '';
+        state.month = '';
+        console.log('[App] Filter zurückgesetzt');
+        break;
     }
+
+    console.log('[App] Apply Filters mit State:', {
+      selectedTags: Array.from(state.selectedTags),
+      textSearch: state.textSearch,
+      month: state.month
+    });
+    applyFilters();
   });
-  on(els.textSearch, 'input', ()=>{ state.textSearch = els.textSearch.value.toLowerCase(); applyFilters(); });
-  on(els.monthSelect, 'change', ()=>{ state.month = els.monthSelect.value; applyFilters(); });
 
   // CRUD Events
   window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
@@ -762,5 +816,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  console.log('[App] Initialisierung abgeschlossen - starte Refresh');
   refresh().catch(console.error);
 });
