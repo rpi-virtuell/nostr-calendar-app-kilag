@@ -7,6 +7,7 @@
 
   /* Hintergründe */
   --color-background: #f4f7f6;
+  --color-toolbar-bg: #e9e4db;
   --color-surface: #ffffff;
   --color-filter-bg: var(--color-surface);
   --color-filter-field-bg: var(--color-background);
@@ -56,8 +57,8 @@
   --tile-min-width: 320px;
 
   /* Schatten & Effekte */
-  --tile-shadow: 0 5px 15px rgba(0,0,0,.18);
-  --tile-shadow-hover: 0 10px 24px rgba(0,0,0,.22);
+  --tile-shadow: 5px 5px 15px rgba(0,0,0,.18);
+  --tile-shadow-hover: 10px 10px 24px rgba(0,0,0,.22);
   --modal-overlay: rgba(0,0,0,.5);
 
   /* Z-Index */
@@ -231,39 +232,51 @@ a{color:var(--color-primary);text-decoration:none}
 
 /* Event Tile Card */
 .event-tile {
-  background: var(--color-surface);
+  background: transparent;
   border-radius: var(--radius-lg);
-  box-shadow: var(--tile-shadow);
   overflow: hidden;
   transition: all var(--duration-normal) var(--easing-default);
   position: relative;
-}
-
-.event-tile:hover {
-  box-shadow: var(--tile-shadow-hover);
-  transform: translateY(-2px);
 }
 
 .event-wrapper {
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--tile-shadow);
+  overflow: hidden;
+  transition: all var(--duration-normal) var(--easing-default);
+  position: relative;
+  width: 95%;
+  margin: 0 30px 30px 0;
 }
+
+.event-wrapper:hover {
+  box-shadow: var(--tile-shadow-hover);
+  transform: translateY(-2px); 
+  transform: translateX(-2px); 
+}
+
 
 /* Tile Tags - oben rechts */
 .tile-tags {
   position: absolute;
+  align-items: end;
   top: 12px;
-  right: 12px;
-  z-index: 10;
+  right: 1px;
+  z-index: 2;
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
   gap: var(--space-xs);
   justify-content: flex-end;
+  max-width: 50%;
 }
 
 .tile-tags .tag-badge {
-  background: rgba(42, 115, 194, 0.9);
+  background-color: #0f172a54;
   color: var(--color-surface);
   border: none;
   padding: 4px 8px;
@@ -275,11 +288,24 @@ a{color:var(--color-primary);text-decoration:none}
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  width: min-content;
+  justify-self: right;
+}
+#modal-tags button{
+  color:var(--color-tag-text);
+  padding:5px 10px; 
+  border-radius:var(--radius-round); 
+  font-size:.8em; 
+  border:none; 
+  cursor:pointer;
+  margin-right: 0px;
+  max-width:100%; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
 }
 
 .tile-tags .tag-badge:hover {
   background: rgba(42, 115, 194, 1);
   transform: translateY(-1px);
+  transform: translateX(-5px);
 }
 
 /* Tile Header mit Date Bubble */
@@ -301,8 +327,8 @@ a{color:var(--color-primary);text-decoration:none}
   position: absolute;
   top: 12px;
   left: 12px;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-  color: var(--color-primary-contrast);
+  background: var(--color-primary-contrast) ;
+  color: var(--color-primary);
   border-radius: var(--radius-md);
   padding: 8px 12px;
   text-align: center;
@@ -312,13 +338,21 @@ a{color:var(--color-primary);text-decoration:none}
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .date-bubble-year {
-  font-size: 0.75rem;
+  font-size: 1rem;
   font-weight: 600;
   line-height: 1;
   opacity: 0.9;
+  position: relative;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  width: 200%;
+  background-color: var(--color-danger);
+  color: var(--color-surface);
+  margin-top: -10px;
 }
 
 .date-bubble-day {
@@ -406,7 +440,7 @@ a{color:var(--color-primary);text-decoration:none}
 /* Tile Toolbar */
 .tile-toolbar {
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-surface);
+  background: var(--color-toolbar-bg);
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
@@ -434,21 +468,25 @@ a{color:var(--color-primary);text-decoration:none}
 }
 
 .btn.primary {
+  background: var(--color-primary-contrast);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.btn.primary:hover {
   background: var(--color-primary);
   color: var(--color-primary-contrast);
 }
 
-.btn.primary:hover {
-  background: #1e5a9e;
-}
-
 .btn.secondary {
-  background: var(--color-secondary);
-  color: var(--color-surface);
+  background: var(--color-surface);
+  color: var(--color-secondary);
+  border: 1px solid var(--color-secondary);
 }
 
 .btn.secondary:hover {
-  background: #e5951a;
+  background: var(--color-secondary);
+  color: var(--color-surface);
 }
 
 .btn.ghost {
