@@ -8,6 +8,7 @@
   <meta name="description" content="Erstellen, posten und aktualisieren Sie Nostr Kalender-Events (Kind 31923, NIP‑52)."/>
   <link rel="stylesheet" href="./css/themes.css">
   <link rel="stylesheet" href="./css/base.css">
+  <link rel="stylesheet" href="./css/filter.css">
 </head>
 <body class="theme-light">
   <header class="app-header">
@@ -118,21 +119,21 @@
   <section class="filter-toolbar" id="filter-toolbar" aria-label="Terminfilter">
     <div class="filter-row" id="filter-row">
       <!-- Tag Selector -->
-      <div class="field tagbox" style="flex:1 1 360px;">
+      <div class="field tagbox" style="flex:1 1">
         <label for="tag-input">Tags</label>
         <input id="tag-input" class="tag-input" type="text" placeholder="Tag suchen & Enter zum Hinzufügen" autocomplete="off" aria-describedby="tag-help">
         <div id="tag-suggest" class="suggest" role="listbox" aria-label="Tag-Vorschläge"></div>
-        <div id="tag-help" class="field-help">Klicke auf Tags oder nutze die Filterleiste, um die Ansicht einzugrenzen.</div>
+      
       </div>
 
       <!-- Text Search -->
-      <div class="field" style="flex:1 1 280px;">
+      <div class="field" style="flex:1 1">
         <label for="search-input">Suche</label>
         <input id="search-input" type="text" placeholder="Titel & Tags durchsuchen …">
       </div>
 
       <!-- Month Dropdown -->
-      <div class="field" style="flex:0 0 220px;">
+      <div class="field" style="flex:0 0">
         <label for="month-select">Monat</label>
         <select id="month-select" aria-label="Monat wählen">
           <option value="">Alle Monate</option>
