@@ -2,6 +2,7 @@ import { Config } from './config.js';
 import { client } from './nostr.js';
 window.nostrClient = client; // Debug-Haken für die Konsole
 import { renderGrid, buildMonthOptions } from './views/list.js';
+import { initDetailSystem } from './views/detail.js';
 import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips } from './views/form.js';
 import { mdToHtml } from './utils.js';
 import { MonthView } from './views/calendar.js';
@@ -34,9 +35,9 @@ let currentView = localStorage.getItem('view') || 'cards';
 let monthView;
 
 function initEls() {
-  els = {
-    grid: document.getElementById('grid'),
-    info: document.getElementById('result-info'),
+   els = {
+     grid: document.getElementById('event-wall'), // Updated to use event-wall container
+     info: document.getElementById('result-info'),
     monthSelect: document.getElementById('month-select'),
     tagSearch: document.getElementById('tag-search'),
     selectedTags: document.getElementById('selected-tags'),
@@ -747,6 +748,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initial Setup
   setupMdToolbar();
+
+  // Initialize Detail Modal System
+  initDetailSystem();
+
+  // Event Listener for Tag Filtering from Detail Modal
+  window.addEventListener('filter-by-tag', (e) => {
+    const tag = e.detail.tag;
+    if (tag && !state.selectedTags.has(tag)) {
+      state.selectedTags.add(tag);
+      els.selectedTags.appendChild(createTagChip(tag));
+      applyFilters();
+    }
+  });
 
   refresh().catch(console.error);
 });
