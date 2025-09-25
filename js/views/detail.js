@@ -253,7 +253,7 @@ const DetailModalManager = {
     // Content
     const contentEl = document.getElementById('detail-modal-content');
     if (contentEl) {
-      const content = tags.find(t=>t[0]==='content')?.[1];
+      const content = event.content;
       if (content) {
         contentEl.innerHTML = content;
       } else {
