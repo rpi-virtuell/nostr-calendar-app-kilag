@@ -4,12 +4,6 @@
 import { Config } from './config.js';
 import { uid, b64 } from './utils.js';
 
-// nostr-tools via ESM (korrekte Pfade) – Version pinnen, um API-Divergenzen zu vermeiden
-// Hinweis: Wenn nsec.app / BunkerSigner auf eine bestimmte nostr-tools-Version gebaut ist,
-// können unversionierte ESM-URLs zu Laufzeit-Inkompatibilitäten führen (keine onauth/calls).
-const pureUrl  = 'https://esm.sh/nostr-tools@2.8.1/pure';
-const poolUrl  = 'https://esm.sh/nostr-tools@2.8.1/pool';
-const nip46Url = 'https://esm.sh/nostr-tools@2.8.1/nip46';
 
 let tools = null;
 let poolMod = null;
@@ -44,19 +38,24 @@ async function loadTools() {
   // Try primary CDN (esm.sh). If it fails (network/CORS), fall back to alternative CDN URLs.
   const cdnAlternatives = {
     pure: [
-      pureUrl,
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pure.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/pure.js'
+      'https://esm.sh/nostr-tools@2.17.0/es2022/pure.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/pure.js',
+      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/pure.js',
+      'https://esm.sh/nostr-tools/pure'
+
+      
     ],
     pool: [
-      poolUrl,
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pool.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/pool.js'
+      'https://esm.sh/nostr-tools@2.17.0/es2022/pool.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/pool.js',
+      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/pool.js',
+      'https://esm.sh/nostr-tools/pool'
     ],
     nip46: [
-      nip46Url,
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/nip46.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/nip46.js'
+      'https://esm.sh/nostr-tools@2.17.0/es2022/nip46.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/nip46.js',
+      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/nip46.js',
+      'https://esm.sh/nostr-tools/nip46'
     ]
   };
 

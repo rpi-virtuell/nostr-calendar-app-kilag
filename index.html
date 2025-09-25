@@ -138,7 +138,6 @@
 
   <main>
     <div id="result-info" class="result-info">–</div>
-    <div id="grid" class="grid"></div>
     <div id="month-grid" class="month-grid hidden"></div>
   </main>
 
@@ -220,6 +219,40 @@
     </form>
   </dialog>
 
+  <!-- Modal: Event Detail View -->
+  <dialog id="event-detail-modal" class="modal">
+    <header class="modal-header">
+      <h2 id="detail-modal-title">Event Details</h2>
+      <button id="close-detail-modal" class="btn btn-ghost" title="Schließen">✕</button>
+    </header>
+    <div class="modal-body">
+      <div id="detail-modal-image-container" class="detail-image-container"></div>
+      <div class="detail-content">
+        <div class="detail-section">
+          <h3 id="detail-modal-summary" class="detail-summary"></h3>
+          <div id="detail-modal-location" class="detail-location"></div>
+          <div id="detail-modal-date" class="detail-date"></div>
+        </div>
+        <div class="detail-section">
+          <h4>Tags</h4>
+          <div id="detail-modal-tags" class="detail-tags"></div>
+        </div>
+        <div class="detail-section">
+          <h4>Beschreibung</h4>
+          <div id="detail-modal-content" class="detail-content-html"></div>
+        </div>
+      </div>
+    </div>
+    <footer class="modal-footer">
+      <div class="left">
+        <button id="btn-edit-from-detail" class="btn btn-primary">Bearbeiten</button>
+      </div>
+      <div class="right">
+        <button id="btn-close-detail" class="btn" value="cancel">Schließen</button>
+      </div>
+    </footer>
+  </dialog>
+
   <!-- Modal: Blossom Manager -->
   <dialog id="blossom-modal" class="modal">
     <header class="modal-header">
@@ -265,24 +298,8 @@
     </div>
   </dialog>
 
-  <template id="card-tpl">
-    <article class="card">
-      <div class="card-cover"></div>
-      <div class="card-badge"></div>
-      <div class="card-body">
-        <h3 class="card-title"></h3>
-        <div class="meta">
-          <span class="when"></span>
-          <span class="where"></span>
-        </div>
-        <p class="summary"></p>
-        <div class="tags"></div>
-        <div class="actions">
-          <button class="btn btn-ghost btn-small edit">Bearbeiten</button>
-        </div>
-      </div>
-    </article>
-  </template>
+  <!-- Event Wall Container -->
+  <div id="event-wall" class="event-wall"></div>
 
   <!-- Progress Modal -->
   <dialog id="progress-modal" class="modal">
