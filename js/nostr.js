@@ -38,23 +38,23 @@ async function loadTools() {
   // Try primary CDN (esm.sh). If it fails (network/CORS), fall back to alternative CDN URLs.
   const cdnAlternatives = {
     pure: [
-      'https://esm.sh/nostr-tools@2.16.2/es2022/pure.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/pure.js',
-      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/pure.js',
+      'https://esm.sh/nostr-tools@2.8.1/pure',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pure.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pure.js',
       'https://esm.sh/nostr-tools/pure'
 
       
     ],
     pool: [
-      'https://esm.sh/nostr-tools@2.16.2/es2022/pool.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/pool.js',
-      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/pool.js',
+      'https://esm.sh/nostr-tools@2.8.1/pool',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pool.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pool.js',
       'https://esm.sh/nostr-tools/pool'
     ],
     nip46: [
-      'https://esm.sh/nostr-tools@2.16.2/es2022/nip46.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/nip46.js',
-      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/nip46.js',
+      'https://esm.sh/nostr-tools@2.8.1/nip46',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/nip46.js',
+      'https://unpkg.com/nostr-tools@2.8.1/esm/nip46.js',
       'https://esm.sh/nostr-tools/nip46'
     ]
   };
@@ -450,7 +450,6 @@ export class NostrClient {
             ? pointerRelays.slice() : [];
           if (chosenRelay && !mergedRelays.includes(chosenRelay)) mergedRelays.unshift(chosenRelay);
           if (mergedRelays.length) base.relays = mergedRelays;
-          if (chosenRelay) base.relay = chosenRelay;
           return base;
         })();
         console.debug('[Bunker] pointer for signer:', pointerForSigner);
@@ -481,9 +480,11 @@ export class NostrClient {
 
         let signer;
         if (BunkerSigner && typeof BunkerSigner.fromBunker === 'function') {
+          signerOptions.pool = this.pool;
           signer = BunkerSigner.fromBunker(skBytes, pointerForSigner, signerOptions);
         } else {
-          signer = new BunkerSigner(skBytes, pointerForSigner, signerOptions);
+          const legacyOptions = { ...signerOptions, relay: chosenRelay };
+          signer = new BunkerSigner(skBytes, pointerForSigner, legacyOptions);
         }
         try {
           if (signer && signer.pool && !signer.pool._bunkerWrapped) {
