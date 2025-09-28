@@ -1,8 +1,6 @@
 export const Config = {
-  // Nostr relays to connect to 'wss://relilab.nostr1.com',
-    
+  // Server-URL für Nostr-Events (z. B. WebSocket-Relay)  
   relays: [
-    'wss://relilab.nostr1.com',
     'wss://relay-rpi.edufeed.org'
   ],
   // Optional: auf bestimmte Autoren einschränken (npub, hex oder leer lassen)

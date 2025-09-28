@@ -38,32 +38,41 @@ async function loadTools() {
   // Try primary CDN (esm.sh). If it fails (network/CORS), fall back to alternative CDN URLs.
   const cdnAlternatives = {
     pure: [
-      'https://esm.sh/nostr-tools@2.17.0/es2022/pure.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/pure.js',
-      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/pure.js',
+      'https://esm.sh/nostr-tools@2.16.2/es2022/pure.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/pure.js',
+      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/pure.js',
       'https://esm.sh/nostr-tools/pure'
 
       
     ],
     pool: [
-      'https://esm.sh/nostr-tools@2.17.0/es2022/pool.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/pool.js',
-      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/pool.js',
+      'https://esm.sh/nostr-tools@2.16.2/es2022/pool.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/pool.js',
+      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/pool.js',
       'https://esm.sh/nostr-tools/pool'
     ],
     nip46: [
-      'https://esm.sh/nostr-tools@2.17.0/es2022/nip46.mjs',
-      'https://cdn.jsdelivr.net/npm/nostr-tools@2.17.0/lib/esm/nip46.js',
-      'https://unpkg.com/nostr-tools@2.17.0/lib/esm/nip46.js',
+      'https://esm.sh/nostr-tools@2.16.2/es2022/nip46.mjs',
+      'https://cdn.jsdelivr.net/npm/nostr-tools@2.16.2/lib/esm/nip46.js',
+      'https://unpkg.com/nostr-tools@2.16.2/lib/esm/nip46.js',
       'https://esm.sh/nostr-tools/nip46'
     ]
   };
 
-  async function tryImport(list) {
+  async function tryImport(list, validate) {
     let lastErr = null;
     for (const url of list) {
       try {
-        return await import(url);
+        const mod = await import(url);
+        if (validate) {
+          const ok = validate(mod);
+          if (!ok) {
+            console.warn('[loadTools] imported module missing expected shape for', url);
+            lastErr = new Error('module missing expected exports');
+            continue;
+          }
+        }
+        return mod;
       } catch (e) {
         lastErr = e;
         console.debug('[loadTools] import failed for', url, e && (e.message || e));
@@ -94,9 +103,15 @@ async function loadTools() {
 
   if (!nip46Mod) {
     try {
-      nip46Mod = await tryImport(cdnAlternatives.nip46);
+      nip46Mod = await tryImport(cdnAlternatives.nip46, (mod) => {
+        if (!mod || !mod.BunkerSigner) return false;
+        const bs = mod.BunkerSigner;
+        return typeof bs.fromBunker === 'function' || bs.length >= 2;
+      });
+      console.debug('[loadTools] nip46 module loaded successfully');
     } catch (e) {
-      console.warn('[loadTools] nip46 module not available (all candidates failed):', e);
+      console.error('[loadTools] nip46 module not available (all candidates failed):', e);
+      console.error('[loadTools] Available nip46 alternatives:', cdnAlternatives.nip46);
       nip46Mod = null;
     }
   }
@@ -313,108 +328,208 @@ export class NostrClient {
 
 
   // ---- NIP-46 (Bunker) – mit onauth-Callback und optional silent-Mode
-async connectBunker(connectURI, { openAuth = true } = {}) {
-  // Verhindere parallele Verbindungsversuche (Button + Auto-Reconnect)
-  if (this._nip46Connecting) {
-    console.warn('[Bunker] connectBunker skipped — another connect is in progress');
-    throw new Error('NIP-46 connect already in progress');
-  }
-  this._nip46Connecting = true;
-  await this.initPool();
-  await loadTools();
+ async connectBunker(connectURI, { openAuth = true } = {}) {
+   // Verhindere parallele Verbindungsversuche (Button + Auto-Reconnect)
+   if (this._nip46Connecting) {
+     console.warn('[Bunker] connectBunker skipped — another connect is in progress');
+     throw new Error('NIP-46 connect already in progress');
+   }
+   this._nip46Connecting = true;
+   await this.initPool();
+   await loadTools();
 
-  const { BunkerSigner, parseBunkerInput, toBunkerURL } = (nip46Mod || {});
-  if (!BunkerSigner || !parseBunkerInput) {
-    throw new Error('nip46 build lacks BunkerSigner/parseBunkerInput');
-  }
+   try {
+     // Check if nip46 module is available
+     if (!nip46Mod) {
+       throw new Error('NIP-46 module not available. Please check your internet connection and try again.');
+     }
 
-  // 1) URI normalisieren + parsen
-  let raw = String(connectURI || '').trim();
-  if (!raw) throw new Error('No connect URI provided');
-
-  let pointer = null;
-  try { pointer = await parseBunkerInput(raw); } catch {}
-  if (!pointer && typeof toBunkerURL === 'function') {
+    const { BunkerSigner, parseBunkerInput, toBunkerURL } = (nip46Mod || {});
     try {
-      const bunkerUrl = await toBunkerURL(raw);
-      pointer = await parseBunkerInput(bunkerUrl);
-    } catch {}
-  }
-  if (!pointer) throw new Error('Invalid bunker/NIP-46 URI');
-
-  // 2) lokalen Client-Secret laden/erzeugen
-  let skHex = localStorage.getItem('nip46_client_sk_hex');
-  if (!skHex) {
-    const skBytesInit = tools.generateSecretKey(); // Uint8Array
-    skHex = Array.from(skBytesInit).map(b => b.toString(16).padStart(2,'0')).join('');
-    localStorage.setItem('nip46_client_sk_hex', skHex);
-  }
-  const skBytes = new Uint8Array(skHex.match(/.{1,2}/g).map(h => parseInt(h,16)));
-
-  // ---- Preflight: schnelles Relay aus Pointer finden ----
-  async function preflightRelay(relays = [], capMs = 1500) {
-    const list = Array.isArray(relays) && relays.length ? relays : [];
-    if (!list.length) return null;
-    const tryOne = (url) => new Promise((resolve) => {
-      let ws, done = false;
-      const timer = setTimeout(() => { if (!done) { done = true; try { ws?.close(); } catch{}; resolve(null); } }, capMs);
-      try {
-        ws = new WebSocket(url);
-        ws.addEventListener('open', () => { if (!done){ done = true; clearTimeout(timer); try{ ws.close(); }catch{}; resolve(url); }});
-        ws.addEventListener('error', () => { if (!done){ done = true; clearTimeout(timer); resolve(null); }});
-        ws.addEventListener('close', () => { if (!done){ done = true; clearTimeout(timer); resolve(url); }});
-      } catch {
-        resolve(null);
+      console.debug('[Bunker] nip46Mod keys:', Object.keys(nip46Mod || {}));
+      console.debug('[Bunker] BunkerSigner typeof:', typeof BunkerSigner);
+      if (BunkerSigner) {
+        console.debug('[Bunker] BunkerSigner own props:', Object.getOwnPropertyNames(BunkerSigner));
       }
-    });
-    for (const r of list) {
-      const ok = await tryOne(r);
-      if (ok) return ok;
+    } catch {}
+    if (!BunkerSigner || !parseBunkerInput) {
+      console.error('[Bunker] nip46Mod contents:', Object.keys(nip46Mod || {}));
+      throw new Error('nip46 build lacks BunkerSigner/parseBunkerInput. Check if nip46 module loaded correctly.');
     }
-    return null;
-  }
 
-  // 3) Flags/Utils
-  let authTriggered = false;
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const MAX_WAIT_MS = 45000; // Gesamtzeit zum Polling von getPublicKey()
+    // 1) URI normalisieren + parsen
+    let raw = String(connectURI || '').trim();
+    if (!raw) throw new Error('No connect URI provided');
 
-  // 4) BunkerSigner + onauth
-  let bunker;
-  let chosenRelay = null;
-  try {
-    const pointerRelays = Array.isArray(pointer?.relays) ? pointer.relays.filter(Boolean) : [];
-    chosenRelay = await preflightRelay(pointerRelays, 1500) || pointerRelays[0] || 'wss://relay.nsec.app';
+    let pointer = null;
+    try { pointer = await parseBunkerInput(raw); } catch {}
+    if (!pointer && typeof toBunkerURL === 'function') {
+      try {
+        const bunkerUrl = await toBunkerURL(raw);
+        pointer = await parseBunkerInput(bunkerUrl);
+      } catch {}
+    }
+    if (!pointer) throw new Error('Invalid bunker/NIP-46 URI');
+
+    // 2) lokalen Client-Secret laden/erzeugen
+    let skHex = localStorage.getItem('nip46_client_sk_hex');
+    if (!skHex) {
+      const skBytesInit = tools.generateSecretKey(); // Uint8Array
+      skHex = Array.from(skBytesInit).map(b => b.toString(16).padStart(2,'0')).join('');
+      localStorage.setItem('nip46_client_sk_hex', skHex);
+    }
+    const skBytes = new Uint8Array(skHex.match(/.{1,2}/g).map(h => parseInt(h,16)));
+
+    // ---- Preflight: schnelles Relay aus Pointer finden ----
+    async function preflightRelay(relays = [], capMs = 1500) {
+      const list = Array.isArray(relays) && relays.length ? relays : [];
+      if (!list.length) return null;
+      const tryOne = (url) => new Promise((resolve) => {
+        let ws, done = false;
+        const timer = setTimeout(() => {
+          if (!done) {
+            done = true;
+            try { ws?.close(); } catch {}
+            resolve(null);
+          }
+        }, capMs);
+        try {
+          ws = new WebSocket(url);
+          ws.addEventListener('open', () => {
+            if (!done) {
+              done = true;
+              clearTimeout(timer);
+              try { ws.close(); } catch {}
+              resolve(url);
+            }
+          });
+          ws.addEventListener('error', () => {
+            if (!done) {
+              done = true;
+              clearTimeout(timer);
+              resolve(null);
+            }
+          });
+          ws.addEventListener('close', () => {
+            if (!done) {
+              done = true;
+              clearTimeout(timer);
+              resolve(url);
+            }
+          });
+        } catch {
+          resolve(null);
+        }
+      });
+      for (const r of list) {
+        const ok = await tryOne(r);
+        if (ok) return ok;
+      }
+      return null;
+    }
+
+    // 3) Flags/Utils
+    let authTriggered = false;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const MAX_WAIT_MS = 45000; // Gesamtzeit zum Polling von getPublicKey()
+
+    // 4) BunkerSigner + onauth
+    let bunker;
+    let chosenRelay = null;
+    try {
+      const pointerRelays = Array.isArray(pointer?.relays) ? pointer.relays.filter(Boolean) : [];
+      chosenRelay = await preflightRelay(pointerRelays, 1500) || pointerRelays[0] || 'wss://relay.nsec.app';
 
     // Helper: (Re)Create the BunkerSigner with current settings
     const createBunker = () => {
-      const signer = new BunkerSigner(skBytes, pointer, {
-        // Wichtig: kein SimplePool verwenden – direkte WS-Verbindung zum Relay erzwingen.
-        // Einige Bunker/Relay-Kombinationen liefern RPC-Antworten nicht zuverlässig über SimplePool-Subs aus.
-        relay: chosenRelay,
-        // relays explizit nicht setzen, damit der Signer intern eine eindeutige Verbindung nutzt
-        onauth: (url) => {
-          authTriggered = true;
-          if (openAuth) {
-            try {
-              const w = window.open(url, '_blank', 'noopener,noreferrer');
-              if (!w) {
+      try {
+        console.debug('[Bunker] Creating BunkerSigner with relay:', chosenRelay);
+        const pointerForSigner = (() => {
+          const base = { ...(pointer || {}) };
+          const mergedRelays = Array.isArray(pointerRelays) && pointerRelays.length
+            ? pointerRelays.slice() : [];
+          if (chosenRelay && !mergedRelays.includes(chosenRelay)) mergedRelays.unshift(chosenRelay);
+          if (mergedRelays.length) base.relays = mergedRelays;
+          if (chosenRelay) base.relay = chosenRelay;
+          return base;
+        })();
+        console.debug('[Bunker] pointer for signer:', pointerForSigner);
+        const signerOptions = {
+          onauth: (url) => {
+            console.debug('[Bunker] Auth URL received:', url);
+            authTriggered = true;
+            if (openAuth) {
+              try {
+                const w = window.open(url, '_blank', 'noopener,noreferrer');
+                if (!w) {
+                  navigator.clipboard?.writeText(url).catch(()=>{});
+                  console.warn('[Bunker] Popup blocked, URL copied to clipboard');
+                }
+              } catch (e) {
                 navigator.clipboard?.writeText(url).catch(()=>{});
-                // alert('Bitte diese Autorisierungs-URL öffnen (Link in Zwischenablage):\n' + url);
+                console.warn('[Bunker] Failed to open auth URL:', e);
+                alert('Bitte diese Autorisierungs-URL öffnen:\n' + url);
               }
-            } catch (e) {
-              navigator.clipboard?.writeText(url).catch(()=>{});
-              alert('Bitte diese Autorisierungs-URL öffnen:\n' + url);
+            } else {
+              try { localStorage.setItem('nip46_last_auth_url', url); } catch {}
+              window.dispatchEvent(new CustomEvent('nip46-auth-url', { detail: { url } }));
             }
-          } else {
-            try { localStorage.setItem('nip46_last_auth_url', url); } catch {}
-            window.dispatchEvent(new CustomEvent('nip46-auth-url', { detail: { url } }));
+          },
+          onnotice: (msg) => console.log('[NIP-46 notice]', msg),
+          onerror:  (err) => console.warn('[NIP-46 error]', err)
+        };
+
+        let signer;
+        if (BunkerSigner && typeof BunkerSigner.fromBunker === 'function') {
+          signer = BunkerSigner.fromBunker(skBytes, pointerForSigner, signerOptions);
+        } else {
+          signer = new BunkerSigner(skBytes, pointerForSigner, signerOptions);
+        }
+        try {
+          if (signer && signer.pool && !signer.pool._bunkerWrapped) {
+            const origPublish = signer.pool.publish?.bind(signer.pool);
+            if (origPublish) {
+              signer.pool.publish = (...args) => {
+                console.debug('[Bunker] pool.publish', args[0], args[1]);
+                const res = origPublish(...args);
+                try {
+                  if (Array.isArray(res)) {
+                    res.forEach((p, idx) => {
+                      if (p && typeof p.then === 'function') {
+                        p.then(() => console.debug('[Bunker] pool.publish resolved', idx))
+                         .catch(err => console.warn('[Bunker] pool.publish rejected', idx, err));
+                      }
+                    });
+                  }
+                } catch (e) {
+                  console.warn('[Bunker] pool.publish monitor failed', e);
+                }
+                return res;
+              };
+              signer.pool._bunkerWrapped = true;
+            }
           }
-        },
-        onnotice: (msg) => console.log('[NIP-46 notice]', msg),
-        onerror:  (err) => console.warn('[NIP-46 error]', err)
-      });
-      return signer;
+          const origSendRequest = signer.sendRequest.bind(signer);
+          signer.sendRequest = async (...args) => {
+            console.debug('[Bunker] sendRequest call', args[0], args[1]);
+            try {
+              const res = await origSendRequest(...args);
+              console.debug('[Bunker] sendRequest result', args[0], res);
+              return res;
+            } catch (err) {
+              console.warn('[Bunker] sendRequest error', args[0], err);
+              throw err;
+            }
+          };
+        } catch (e) {
+          console.warn('[Bunker] failed to wrap sendRequest', e);
+        }
+        console.debug('[Bunker] BunkerSigner created successfully');
+        return signer;
+      } catch (e) {
+        console.error('[Bunker] Failed to create BunkerSigner:', e);
+        throw new Error('Failed to create BunkerSigner: ' + (e.message || String(e)));
+      }
     };
 
     bunker = createBunker();
@@ -423,7 +538,6 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
     // Fehler werden geloggt, aber wir verlassen uns auf getPublicKey()-Polling unten.
     try {
       console.debug('[Bunker] calling bunker.connect() (background start)');
-      // Start background connect and log resolution for diagnostics
       bunker.connect()
         .then(() => {
           try { console.debug('[Bunker] bunker.connect() resolved successfully'); } catch(e){}
@@ -436,80 +550,108 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
       console.warn('bunker.connect invocation failed:', e);
     }
 
-  } catch (e) {
-    console.warn('BunkerSigner init failed:', e, 'pointer.relays=', pointer?.relays);
-    throw new Error('Failed to init NIP-46 signer');
-  }
+    } catch (e) {
+      console.warn('BunkerSigner init failed:', e, 'pointer.relays=', pointer?.relays);
+      throw new Error('Failed to init NIP-46 signer');
+    }
 
-  // 5) Warten, bis Pubkey abrufbar (nach Genehmigung)
-  let pk = null;
-  const start = Date.now();
-  const TRY_TIMEOUT_MS = 1200; // vermeidet Hänger, falls getPublicKey() nie resolved/rejected
-  let attempts = 0;
-  console.debug('[Bunker] begin getPublicKey polling (max ms=', MAX_WAIT_MS, 'relay=', chosenRelay, 'pointer.relays=', pointer && pointer.relays);
-  while ((Date.now() - start) < MAX_WAIT_MS) {
-    attempts++;
-    try {
-      const res = await Promise.race([
-        bunker.getPublicKey(),
-        sleep(TRY_TIMEOUT_MS).then(() => '__TIMEOUT__')
-      ]);
-      if (res !== '__TIMEOUT__') {
-        pk = res;
-        console.debug('[Bunker] getPublicKey attempt', attempts, '->', pk);
-      } else {
-        console.debug('[Bunker] getPublicKey attempt', attempts, '→ timeout after', TRY_TIMEOUT_MS, 'ms');
-        // Recovery: Wenn Auth ausgelöst wurde, aber keine Antwort kommt,
-        // versuche periodisch, den Signer neu zu initialisieren und erneut zu verbinden.
-        if (authTriggered && (attempts % 6 === 0)) {
-          try {
-            console.warn('[Bunker] no pubkey yet after', attempts, 'attempts — recreating signer and reconnecting…');
-            try { await bunker.close?.(); } catch {}
-            bunker = createBunker();
-            bunker.connect().catch(e => console.warn('bunker.connect retry error:', e));
-            try { window.dispatchEvent(new CustomEvent('nip46-connect-started', { detail: { relay: chosenRelay, retry: true } })); } catch(e){}
-          } catch (e) {
-            console.warn('[Bunker] recreate signer failed:', e);
+    // 5) Warten, bis Pubkey abrufbar (nach Genehmigung)
+    let pk = null;
+    const start = Date.now();
+    const TRY_TIMEOUT_MS = 1200; // vermeidet Hänger, falls getPublicKey() nie resolved/rejected
+    let attempts = 0;
+    console.debug('[Bunker] begin getPublicKey polling (max ms=', MAX_WAIT_MS, 'relay=', chosenRelay, 'pointer.relays=', pointer && pointer.relays);
+
+    while ((Date.now() - start) < MAX_WAIT_MS) {
+      attempts++;
+      try {
+        // Validate bunker object before calling getPublicKey
+        if (!bunker || typeof bunker.getPublicKey !== 'function') {
+          throw new Error('Bunker object not properly initialized');
+        }
+
+        const res = await Promise.race([
+          bunker.getPublicKey(),
+          sleep(TRY_TIMEOUT_MS).then(() => '__TIMEOUT__')
+        ]);
+
+        if (res !== '__TIMEOUT__') {
+          pk = res;
+          console.debug('[Bunker] getPublicKey attempt', attempts, '->', pk);
+        } else {
+          console.debug('[Bunker] getPublicKey attempt', attempts, '→ timeout after', TRY_TIMEOUT_MS, 'ms');
+          // Recovery: Wenn Auth ausgelöst wurde, aber keine Antwort kommt,
+          // versuche periodisch, den Signer neu zu initialisieren und erneut zu verbinden.
+          if (authTriggered && (attempts % 6 === 0)) {
+            try {
+              console.warn('[Bunker] no pubkey yet after', attempts, 'attempts — recreating signer and reconnecting…');
+              try { await bunker.close?.(); } catch {}
+              bunker = createBunker();
+              bunker.connect().catch(e => console.warn('bunker.connect retry error:', e));
+              try { window.dispatchEvent(new CustomEvent('nip46-connect-started', { detail: { relay: chosenRelay, retry: true } })); } catch(e){}
+            } catch (e) {
+              console.warn('[Bunker] recreate signer failed:', e);
+            }
           }
         }
+
+        if (pk && /^[0-9a-f]{64}$/i.test(pk)) {
+          console.debug('[Bunker] valid pubkey received after', attempts, 'attempts:', pk);
+          break;
+        }
+      } catch (e) {
+        // noch nicht autorisiert / noch nicht bereit
+        console.debug('[Bunker] getPublicKey attempt', attempts, 'threw:', e && (e.message || e));
       }
-      if (pk && /^[0-9a-f]{64}$/i.test(pk)) {
-        console.debug('[Bunker] valid pubkey received after', attempts, 'attempts:', pk);
-        break;
-      }
-    } catch (e) {
-      // noch nicht autorisiert / noch nicht bereit
-      console.debug('[Bunker] getPublicKey attempt', attempts, 'threw:', e && (e.stack || e));
+      await sleep(500);
     }
-    await sleep(500);
-  }
-  console.debug('[Bunker] polling finished after', attempts, 'attempts, elapsed ms=', (Date.now() - start));
-  if (!pk) {
-    // Wenn onauth nie kam, ist es meist ein Relay-/Routing-Problem; sonst: User hat evtl. nicht bestätigt
-    const why = authTriggered ? 'authorization not completed' : 'no auth_url received';
-    console.warn('[Bunker] connect timeout reason=', why, 'authTriggered=', authTriggered);
-    throw new Error('NIP-46 connect timeout (' + why + ')');
-  }
+    console.debug('[Bunker] polling finished after', attempts, 'attempts, elapsed ms=', (Date.now() - start));
+    if (!pk) {
+      // Wenn onauth nie kam, ist es meist ein Relay-/Routing-Problem; sonst: User hat evtl. nicht bestätigt
+      const why = authTriggered ? 'authorization not completed' : 'no auth_url received';
+      console.warn('[Bunker] connect timeout reason=', why, 'authTriggered=', authTriggered);
 
-  // 6) Signer & Pubkey übernehmen
-  this.signer = {
-    type: 'nip46',
-    getPublicKey: async () => await bunker.getPublicKey(),
-    signEvent:    async (evt) => await bunker.signEvent(evt),
-    close:        async () => { try { await bunker.close?.(); } catch {} }
-  };
-  this.pubkey = pk;
+      // Provide more detailed error information
+      let errorMsg = 'NIP-46 connect timeout (' + why + ')';
+      if (!authTriggered) {
+        errorMsg += '\n\nPossible causes:';
+        errorMsg += '\n- Invalid bunker URI format';
+        errorMsg += '\n- Bunker service not available';
+        errorMsg += '\n- Network connectivity issues';
+        errorMsg += '\n- Relay connection problems';
+      } else {
+        errorMsg += '\n\nPlease check if you approved the authorization request in your bunker app.';
+      }
 
-  // Persistenz + UI-Event
-  try {
-    localStorage.setItem('nip46_connected', '1');
-    localStorage.setItem('nip46_connected_pubkey', this.pubkey);
-  } catch {}
-  try {
-    window.dispatchEvent(new CustomEvent('nip46-connected', { detail: { pubkey: this.pubkey } }));
-  } catch {}
+      throw new Error(errorMsg);
+    }
 
-  return { method: 'nip46', pubkey: this.pubkey, relay: (chosenRelay || pointer?.relays?.[0] || null) };
+    // 6) Signer & Pubkey übernehmen
+    if (!bunker || typeof bunker.getPublicKey !== 'function' || typeof bunker.signEvent !== 'function') {
+      throw new Error('Bunker object not properly initialized - missing required methods');
+    }
+
+    this.signer = {
+      type: 'nip46',
+      getPublicKey: async () => await bunker.getPublicKey(),
+      signEvent:    async (evt) => await bunker.signEvent(evt),
+      close:        async () => { try { await bunker.close?.(); } catch {} }
+    };
+    this.pubkey = pk;
+
+    // Persistenz + UI-Event
+    try {
+      localStorage.setItem('nip46_connected', '1');
+      localStorage.setItem('nip46_connected_pubkey', this.pubkey);
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent('nip46-connected', { detail: { pubkey: this.pubkey } }));
+    } catch {}
+
+    return { method: 'nip46', pubkey: this.pubkey, relay: (chosenRelay || pointer?.relays?.[0] || null) };
+   } finally {
+     this._nip46Connecting = false;
+   }
 }
 
 
@@ -673,3 +815,4 @@ async connectBunker(connectURI, { openAuth = true } = {}) {
 }
 
 export const client = new NostrClient();
+
