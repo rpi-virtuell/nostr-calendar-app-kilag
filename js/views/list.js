@@ -46,6 +46,28 @@ export function renderGrid(container, events){
 function createEventTile(e) {
   // Stelle sicher, dass tags existiert
   const tags = e.tags || [];
+  const evPubkey = (e.pubkey || '').toLowerCase();
+
+  // Hilfsfunktion: Darf aktueller User dieses Event bearbeiten?
+  async function canEditEvent() {
+    try {
+      if (window.authManager) {
+        const plugin = await window.authManager.getActivePlugin();
+        if (plugin && await plugin.isLoggedIn()) {
+          const userPk = ((await plugin.getPublicKey()) || '').toLowerCase();
+          return !!(evPubkey && userPk && evPubkey === userPk);
+        }
+      }
+      // Fallback über direkten Nostr-Client
+      if (window.nostrClient && window.nostrClient.signer && typeof window.nostrClient.signer.getPublicKey === 'function') {
+        const userPk = ((await window.nostrClient.signer.getPublicKey()) || '').toLowerCase();
+        return !!(evPubkey && userPk && evPubkey === userPk);
+      }
+    } catch (err) {
+      console.warn('[list] canEditEvent check failed:', err);
+    }
+    return false;
+  }
 
   // Event-Daten extrahieren
   const titleTag = tags.find(t=>t[0]==='title')?.[1] || '(ohne Titel)';
@@ -203,6 +225,7 @@ function createEventTile(e) {
   toolbarRight.className = 'tile-toolbar-right';
 
   // Bearbeiten Button
+  // Bearbeiten-Button nur anzeigen, wenn aktueller User = Event-Autor
   const editBtn = document.createElement('button');
   editBtn.className = 'btn secondary edit-btn';
   editBtn.textContent = 'Bearbeiten';
@@ -210,6 +233,10 @@ function createEventTile(e) {
     event.stopPropagation();
     const ev = new CustomEvent('edit-event', { detail: { event: e, d: dtag } });
     window.dispatchEvent(ev);
+  });
+  // Button erst anhängen, wenn Berechtigung bestätigt wurde
+  canEditEvent().then((ok) => {
+    if (ok) toolbarLeft.appendChild(editBtn);
   });
 
   // Details Button
@@ -222,7 +249,6 @@ function createEventTile(e) {
     window.dispatchEvent(detailEvent);
   });
 
-  toolbarLeft.appendChild(editBtn);
   toolbarRight.appendChild(detailsBtn);
 
   toolbar.appendChild(toolbarLeft);

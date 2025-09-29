@@ -135,6 +135,27 @@ const DetailModalManager = {
 
     // Stelle sicher, dass tags existiert
     const tags = event.tags || [];
+    const evPubkey = (event.pubkey || '').toLowerCase();
+
+    // Helper: check if current user may edit
+    const canEditEvent = async () => {
+      try {
+        if (window.authManager) {
+          const plugin = await window.authManager.getActivePlugin();
+          if (plugin && await plugin.isLoggedIn()) {
+            const userPk = ((await plugin.getPublicKey()) || '').toLowerCase();
+            return !!(evPubkey && userPk && evPubkey === userPk);
+          }
+        }
+        if (window.nostrClient && window.nostrClient.signer && typeof window.nostrClient.signer.getPublicKey === 'function') {
+          const userPk = ((await window.nostrClient.signer.getPublicKey()) || '').toLowerCase();
+          return !!(evPubkey && userPk && evPubkey === userPk);
+        }
+      } catch (err) {
+        console.warn('[detail] canEditEvent check failed:', err);
+      }
+      return false;
+    };
 
     // Titel
     const titleEl = document.getElementById('detail-modal-title');
@@ -259,6 +280,16 @@ const DetailModalManager = {
       } else {
         contentEl.textContent = 'Keine detaillierte Beschreibung verfügbar.';
       }
+    }
+
+    // Edit-Button Sichtbarkeit steuern
+    const editBtn = document.getElementById('btn-edit-from-detail');
+    if (editBtn) {
+      // Standard: ausblenden bis Berechtigung bestätigt
+      editBtn.style.display = 'none';
+      canEditEvent().then((ok) => {
+        editBtn.style.display = ok ? '' : 'none';
+      });
     }
   },
 
