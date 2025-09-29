@@ -298,7 +298,7 @@ a{color:var(--color-primary);text-decoration:none}
   position:fixed;top:0;right:0;height:100vh;width:320px;
   background:var(--panel);border-left:1px solid var(--border);
   z-index:1000;transform:translateX(100%);transition:transform 0.3s ease;
-  overflow-y:auto;
+  overflow-y:auto;overflow-x:hidden;
 }
 .sidebar.open{transform:translateX(0)}
 .sidebar-overlay{
@@ -321,6 +321,7 @@ a{color:var(--color-primary);text-decoration:none}
   padding:12px 16px;border:1px solid var(--border);
   background:var(--bg);color:var(--text);border-radius:8px;
   cursor:pointer;transition:all 0.2s ease;text-align:left;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
 }
 .sidebar-btn:hover{
   background:var(--hover);border-color:var(--primary);
@@ -339,6 +340,21 @@ a{color:var(--color-primary);text-decoration:none}
   padding:8px 12px;border:1px solid var(--border);
   background:var(--bg);color:var(--text);border-radius:6px;
 }
+
+/* Sidebar responsive helpers */
+.sidebar .row { display:flex; flex-wrap:wrap; gap:8px; }
+.sidebar .row-inline { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.sidebar .row-inline > * { min-width:0; }
+.sidebar select,
+.sidebar input { width:100%; box-sizing:border-box; }
+
+/* Subscriptions controls: list select on its own row; buttons split beneath */
+#subs-list-select { flex: 1 1 100%; }
+#subs-share-link, #subs-save-as-own { flex: 1 1 calc(50% - 4px); }
+
+/* Add npub control: stack input and button on small width */
+#subscription-input { flex: 1 1 100%; }
+#subscription-add { flex: 1 1 100%; }
 
 .toolbar{padding:12px 20px;background:transparent;position:sticky;top:64px;z-index:5}
 .toolbar-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
@@ -897,9 +913,10 @@ a{color:var(--color-primary);text-decoration:none}
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-width: 100%;
 }
 .subscription-item {
-  display: flex;
+  display: flex; flex-wrap: wrap; gap: 8px;
   align-items: center;
   justify-content: space-between;
   border: 1px solid var(--border-color);
@@ -907,10 +924,17 @@ a{color:var(--color-primary);text-decoration:none}
   padding: 8px 10px;
   background: var(--color-surface);
 }
-.subscription-info { display: flex; flex-direction: column; }
+.subscription-info { display: flex; flex-direction: column; min-width:0; flex:1 1 auto; }
 .subscription-name { font-weight: 600; color: var(--color-text); }
-.subscription-key { font-size: 0.85rem; color: var(--color-muted); }
+.subscription-key { font-size: 0.85rem; color: var(--color-muted); overflow-wrap:anywhere; }
 .subscription-remove.btn { padding: 6px 8px; }
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .sidebar { width: 92vw; }
+  #subs-share-link, #subs-save-as-own { flex: 1 1 100%; }
+  #subscription-add { flex: 1 1 100%; }
+}
 
 /* Tooltip unter dem Namen für zusätzliche Details */
 .subscription-item .tooltip {
