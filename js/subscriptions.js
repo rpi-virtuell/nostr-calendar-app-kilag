@@ -119,6 +119,14 @@ class SubscriptionsManager {
     this._contactsPollTimer = null;
     this._saveTimer = null;
     this._watching = false;
+
+    // Aktive NIP‑51-Liste (d) und optionale Metadaten
+    this._activeListD = null;
+    this._listName = null;
+    this._listDescription = null;
+    this._listsCache = [];
+    this._pendingURLListD = null;
+    this._listOwnerHex = null;
   }
 
   loadFromStorage() {
@@ -196,6 +204,19 @@ class SubscriptionsManager {
     try {
       const p = new URLSearchParams(location.search);
       const v = p.get('subscripe') || p.get('subscribe');
+      const listD = p.get('list') || p.get('d');
+      if (listD) {
+        this._pendingURLListD = listD;
+        try { localStorage.setItem('nostr_calendar_list_d', listD); } catch {}
+      }
+      const ownerParam = p.get('owner') || p.get('author');
+      if (ownerParam) {
+        const ownerHex = toHexOrNull(ownerParam);
+        if (ownerHex) {
+          this._listOwnerHex = ownerHex.toLowerCase();
+          try { localStorage.setItem('nostr_calendar_list_owner', this._listOwnerHex); } catch {}
+        }
+      }
       if (v) {
         const ok = confirm(`Möchten Sie dieses Profil abonnieren?\n${v}`);
         if (ok) {
@@ -219,15 +240,28 @@ class SubscriptionsManager {
     // Wenn eingeloggt → Kontakte laden + beobachten; sonst: Beobachtung stoppen
     try {
       if (this.canUseContacts()) {
+        // gewünschtes d aus URL/Storage/Config übernehmen
+        let desired = this._pendingURLListD;
+        if (!desired) { try { desired = localStorage.getItem('nostr_calendar_list_d'); } catch {} }
+        if (!desired) desired = ((Config.subscriptionsList && Config.subscriptionsList.nip51 && Config.subscriptionsList.nip51.d) || 'nostr-calendar:subscriptions');
+        if (desired) this._activeListD = desired;
+        // Owner bestimmen (für geteilte Listen)
+        let owner = this._listOwnerHex || client.pubkey;
         // 1) Präferiere NIP-51 People List (kind 30000, d)
-        const ok51 = await this.loadFromNip51(client.pubkey).catch(() => false);
+        const ok51 = await this.loadFromNip51(owner).catch(() => false);
         if (ok51) {
-          this.startWatchingNip51(client.pubkey);
+          this.startWatchingNip51(owner);
         } else {
           // 2) Fallback auf Contacts (kind 3)
-          await this.loadFromContacts(client.pubkey);
-          this.startWatchingContacts(client.pubkey);
+          // Nur sinnvoll, wenn owner der eigene Key ist
+          if (!this._listOwnerHex || this._listOwnerHex === client.pubkey) {
+            await this.loadFromContacts(client.pubkey);
+            this.startWatchingContacts(client.pubkey);
+          }
         }
+        // verfügbare Listen für UI ermitteln (nur für eigenen Key sinnvoll)
+        const who = (!this._listOwnerHex || this._listOwnerHex === client.pubkey) ? client.pubkey : client.pubkey;
+        this.listAllNip51Lists(who).catch(() => {});
       } else {
         this.stopWatchingAll();
       }
@@ -236,8 +270,60 @@ class SubscriptionsManager {
     }
   }
 
+  async setActiveListD(d, { name = null, description = null } = {}) {
+    if (!d || typeof d !== 'string') return false;
+    this._activeListD = d;
+    if (name != null) this._listName = name;
+    if (description != null) this._listDescription = description;
+    try { localStorage.setItem('nostr_calendar_list_d', d); } catch {}
+    // Watcher neu starten und Liste laden
+    try { this.stopWatchingNip51(); } catch {}
+    const ok = await this.loadFromNip51(client.pubkey).catch(() => false);
+    if (ok) this.startWatchingNip51(client.pubkey);
+    // Wenn es die Liste noch nicht gibt, ggf. anlegen (bei vorhandenen Metadaten)
+    if (!ok && (name || description)) {
+      try { await this.saveToNip51(); } catch {}
+    }
+    // Alle Listen aktualisieren
+    this.listAllNip51Lists(client.pubkey).catch(() => {});
+    return true;
+  }
+
+  async listAllNip51Lists(pubkeyHex) {
+    try {
+      if (!pubkeyHex || !/^[0-9a-f]{64}$/i.test(pubkeyHex)) return [];
+      await client.initPool();
+      const kind = (this.listConfig.kind || 30000);
+      const filter = { kinds: [kind], authors: [pubkeyHex] };
+      const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+      let events = [];
+      try { events = await client.listByWebSocketOne(relay, filter, 2500); } catch {
+        try { events = await client.listFromPool(Config.relays, filter, 3500); } catch { events = []; }
+      }
+      const byD = new Map();
+      (events || []).forEach(ev => {
+        const d = ev.tags?.find(t => t[0] === 'd')?.[1];
+        if (!d) return;
+        const name = ev.tags?.find(t => t[0] === 'name')?.[1] || null;
+        const description = ev.tags?.find(t => t[0] === 'description')?.[1] || null;
+        const created_at = ev.created_at || 0;
+        const prev = byD.get(d);
+        if (!prev || created_at > prev.created_at) byD.set(d, { d, name, description, created_at });
+      });
+      this._listsCache = Array.from(byD.values()).sort((a,b) => (b.created_at||0) - (a.created_at||0));
+      try { window.dispatchEvent(new CustomEvent('subscriptions-lists-updated', { detail: { lists: this._listsCache } })); } catch {}
+      return this._listsCache;
+    } catch (e) { console.warn('[Subscriptions] listAllNip51Lists failed:', e); return []; }
+  }
+
   // ---------- NIP-51 (people list, kind 30000) ----------
-  get listConfig() { return (Config.subscriptionsList && Config.subscriptionsList.nip51) || { kind: 30000, d: 'nostr-calendar:subscriptions' }; }
+  get listConfig() {
+    const base = (Config.subscriptionsList && Config.subscriptionsList.nip51) || { kind: 30000, d: 'nostr-calendar:subscriptions' };
+    let stored = null;
+    try { stored = localStorage.getItem('nostr_calendar_list_d'); } catch {}
+    const d = this._activeListD || this._pendingURLListD || stored || base.d;
+    return { ...base, d, name: (this._listName || base.name || null), description: (this._listDescription || base.description || null) };
+  }
 
   async loadFromNip51(pubkeyHex) {
     try {
@@ -332,6 +418,8 @@ class SubscriptionsManager {
 
   async saveToNip51() {
     if (!this.canUseContacts()) return false;
+    // Bei geteilten Listen (owner != self) nicht speichern
+    if (this._listOwnerHex && this._listOwnerHex !== client.pubkey) return false;
     try {
       await client.initPool();
       const now = Math.floor(Date.now() / 1000);
@@ -386,7 +474,7 @@ class SubscriptionsManager {
       if (!events || !events.length) {
         this._contactsCreatedAt = 0;
         // Wenn keine Kontakte vorhanden: vorhandene lokale Liste ggf. veröffentlichen
-        if (this.items && this.items.length) this._debouncedSaveContacts();
+        if (this.items && this.items.length) this._debouncedSaveAll();
         return false;
       }
       // Neueste nehmen
@@ -485,13 +573,19 @@ class SubscriptionsManager {
     if (!this.canUseContacts()) return;
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(async () => {
-      try { await this.saveToNip51(); } catch (e) { console.warn('saveToNip51 debounced failed', e); }
-      try { await this.saveToContacts(); } catch (e) { console.warn('saveToContacts debounced failed', e); }
+      // Bei geteilten Listen (owner != self) nicht speichern
+      const isOwn = (!this._listOwnerHex || this._listOwnerHex === client.pubkey);
+      if (isOwn) {
+        try { await this.saveToNip51(); } catch (e) { console.warn('saveToNip51 debounced failed', e); }
+        try { await this.saveToContacts(); } catch (e) { console.warn('saveToContacts debounced failed', e); }
+      }
     }, delay);
   }
 
   async saveToContacts() {
     if (!this.canUseContacts()) return false;
+    // Bei geteilten Listen (owner != self) nicht speichern
+    if (this._listOwnerHex && this._listOwnerHex !== client.pubkey) return false;
     try {
       await client.initPool();
       const now = Math.floor(Date.now() / 1000);
