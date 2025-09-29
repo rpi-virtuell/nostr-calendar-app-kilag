@@ -343,7 +343,7 @@ a{color:var(--color-primary);text-decoration:none}
 .toolbar{padding:12px 20px;background:transparent;position:sticky;top:64px;z-index:5}
 .toolbar-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .theme-switch select{padding:10px 12px;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:10px}
-.field{display:flex;flex-direction:column;gap:6px;min-width:220px; overflow: hidden;}
+.field{display:flex;flex-direction:column;gap:6px;min-width:220px;}
 .field input,.field select{padding:10px 12px;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:10px;min-width:220px}
 .result-info{padding:0 20px;color:var(--muted)}
 

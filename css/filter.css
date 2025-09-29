@@ -42,8 +42,9 @@
   position: relative;
   /* display: flex;
   flex-direction: column; */
-  display: grid;
-  grid-template-columns: 1fr 5fr;
+  /* display: grid;
+  grid-template-columns: 1fr 5fr; */
+  padding: var(--space-xs);
   gap: var(--space-xs);
   background: var(--color-filter-field-bg);
   border: 1px solid var(--color-filter-field-border);
@@ -333,8 +334,8 @@
   }
   .field {
     position: relative;
-    display: grid;
-    grid-template-columns: 2rem 1fr;
+    /* display: grid;
+    grid-template-columns: 2rem 1fr; */
   }
 
   .suggest {
