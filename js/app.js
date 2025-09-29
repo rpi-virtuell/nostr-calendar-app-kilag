@@ -13,6 +13,7 @@ import { setupBunkerEvents, initNip46FromUrl, connectBunker, autoReconnectBunker
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { FilterManager } from './filter.js';
+import { Subscriptions } from './subscriptions.js';
 
 // New Plugin-based Authentication System
 import { AuthManager } from './auth/AuthManager.js';
@@ -69,6 +70,11 @@ function initEls() {
     sidebarThemeSelect: document.getElementById('sidebar-theme-select'),
     sidebarIcsImport: document.getElementById('sidebar-ics-import'),
     sidebarIcsExport: document.getElementById('sidebar-ics-export'),
+
+  // Subscriptions in sidebar
+  subsList: document.getElementById('subscriptions-list'),
+  subsInput: document.getElementById('subscription-input'),
+  subsAdd: document.getElementById('subscription-add'),
     
     // Theme and other elements  
     monthGrid: document.getElementById('month-grid'),
@@ -458,7 +464,26 @@ async function refresh(){
    try {
      // Load events from Nostr relays
      console.log('[App] Lade Events von Nostr Relays');
-     events = await client.fetchEvents({ sinceDays: 1000 });
+     // Build authors list: subscriptions + current logged-in user (if any)
+     let authors = [];
+     try {
+       authors = Subscriptions.getAuthors();
+     } catch {}
+     try {
+       const activePlugin = await authManager.getActivePlugin();
+       let userPk = null;
+       if (activePlugin && await activePlugin.isLoggedIn()) {
+         userPk = await activePlugin.getPublicKey();
+       } else if (client && client.signer && typeof client.signer.getPublicKey === 'function') {
+         userPk = await client.signer.getPublicKey();
+       }
+       if (userPk) authors = Array.from(new Set([...(authors||[]), userPk]));
+     } catch {}
+     if (!authors || authors.length === 0) {
+       authors = (Config.allowedAuthors || []).slice();
+     }
+     console.log('[App] fetchEvents Autoren:', authors);
+     events = await client.fetchEvents({ sinceDays: 1000, authors });
      console.log('[App] Events geladen:', events.length);
 
      // Load WordPress events if authenticated via WordPress SSO
@@ -602,6 +627,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Initial auth button state update
   await authControls.updateAuthButtons();
+
+  // Initialize Subscriptions manager (after sidebar exists)
+  await Subscriptions.init({
+    listEl: els.subsList,
+    inputEl: els.subsInput,
+    addBtn: els.subsAdd
+  });
+
+  // React on subscription changes -> refresh event list
+  window.addEventListener('subscriptions-changed', async () => {
+    try {
+      await refresh();
+    } catch (e) { console.warn('refresh after subscriptions-changed failed', e); }
+  });
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,

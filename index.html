@@ -99,6 +99,19 @@
           </select>
         </div>
       </section>
+      
+        <!-- Subscriptions Section -->
+        <section class="sidebar-section">
+          <h4>👥 Abonnements</h4>
+          <div class="settings-group gap-sm">
+            <label for="subscription-input">Weiteren npub abonnieren:</label>
+            <div class="row row-inline gap-sm">
+              <input id="subscription-input" placeholder="npub1… oder 64-stelliger Hex" />
+              <button id="subscription-add" class="btn" type="button">Hinzufügen</button>
+            </div>
+          </div>
+          <div id="subscriptions-list" class="subscriptions-list mt-10"></div>
+        </section>
 
       <!-- Import/Export Section -->
       <section class="sidebar-section">
@@ -129,7 +142,7 @@
   <section class="filter-toolbar" id="filter-toolbar" aria-label="Terminfilter">
     <div class="filter-row" id="filter-row">
       <!-- Tag Selector -->
-      <div class="field tagbox" style="flex:1 1">
+  <div class="field tagbox">
         <!-- <label for="tag-input">Tags</label> -->
         <input id="tag-input" class="tag-input" type="text" placeholder="Tag suchen & Enter zum Hinzufügen" autocomplete="off" aria-describedby="tag-help">
         <div id="tag-suggest" class="suggest" role="listbox" aria-label="Tag-Vorschläge"></div>
@@ -137,13 +150,13 @@
       </div>
 
       <!-- Text Search -->
-      <div class="field" style="flex:1 1">
+  <div class="field">
         <!-- <label for="search-input">Suche</label> -->
         <input id="search-input" type="text" placeholder="Titel & Tags durchsuchen …">
       </div>
 
       <!-- Month Dropdown -->
-      <div class="field" style="flex:0 0">
+  <div class="field">
         <!-- <label for="month-select">Monat</label> -->
         <select id="month-select" aria-label="Monat wählen">
           <option value="">Alle Monate</option>
@@ -170,7 +183,7 @@
     <form method="dialog" id="event-form" class="event-form">
       <header class="modal-header">
         <h2 id="modal-title">Kalendereintrag</h2>
-        <button id="close-modal" class="btn btn-ghost" value="cancel" title="Schließen">✕</button>
+  <button id="close-modal" class="btn btn-ghost" type="button" value="cancel" title="Schließen">✕</button>
       </header>
       <div class="form-grid">
         <div class="col">
@@ -234,8 +247,8 @@
           <button id="btn-delete" class="btn btn-danger hidden" type="button">Termin löschen</button>
         </div>
         <div class="right">
-          <button class="btn" value="cancel">Abbrechen</button>
-          <button id="btn-save" class="btn btn-primary" value="default">Speichern & veröffentlichen</button>
+          <button class="btn" type="button" value="cancel">Abbrechen</button>
+          <button id="btn-save" class="btn btn-primary" type="submit" value="default">Speichern & veröffentlichen</button>
         </div>
       </footer>
       <input type="hidden" id="f-dtag" />
@@ -244,7 +257,7 @@
   </dialog>
 
   <!-- Modal: Event Detail View -->
-  <dialog id="event-detail-modal" class="modal" style="display: none;">
+  <dialog id="event-detail-modal" class="modal">
     <header class="modal-header">
       <h2 id="detail-modal-title">Event Details</h2>
       <button id="close-detail-modal" class="btn btn-ghost" title="Schließen">✕</button>
@@ -284,7 +297,7 @@
       <button id="close-blossom" class="btn btn-ghost" title="Schließen">✕</button>
     </header>
     <div class="p-16">
-      <div class="row gap" style="margin-bottom:10px">
+  <div class="row gap mt-10">
         <label>Typ</label>
         <select id="blossom-filter-type">
           <option value="">Alle</option>
@@ -294,9 +307,9 @@
           <option value="other">Andere</option>
         </select>
         <label>Größe min (KB)</label>
-        <input id="blossom-size-min" type="number" style="max-width:120px" />
+  <input id="blossom-size-min" type="number" class="mw-120" />
         <label>max</label>
-        <input id="blossom-size-max" type="number" style="max-width:120px" />
+  <input id="blossom-size-max" type="number" class="mw-120" />
         <label>Seite</label>
         <button id="blossom-prev" class="btn btn-ghost">←</button>
         <span id="blossom-pageinfo" class="muted">1/1</span>
@@ -309,7 +322,7 @@
         </select>
       </div>
       <div id="blossom-drop" class="dropzone">Dateien hier ablegen oder klicken, um auszuwählen…</div>
-      <div class="row gap" style="margin-bottom:10px">
+  <div class="row gap mt-10">
         <button id="btn-blossom-refresh" class="btn">Liste aktualisieren</button>
         <span class="muted" id="blossom-info">–</span>
       </div>
@@ -329,8 +342,8 @@
   <dialog id="progress-modal" class="modal">
     <header class="modal-header"><h2>Veröffentliche…</h2></header>
     <div class="p-16">
-      <div class="progress"><div class="bar" id="progress-bar" style="width:0%"></div></div>
-      <div id="progress-text" class="muted" style="margin-top:8px">0%</div>
+  <div class="progress"><div class="bar" id="progress-bar"></div></div>
+  <div id="progress-text" class="muted mt-8">0%</div>
     </div>
   </dialog>
 

@@ -449,6 +449,7 @@ a{color:var(--color-primary);text-decoration:none}
 .dropzone.drag{background:rgba(0,0,0,0.05)}
 .progress{width:100%; height:14px; border-radius:999px; background:var(--border-color); overflow:hidden}
 .progress .bar{height:100%; background:var(--color-primary); transition:width .2s ease}
+.progress #progress-bar{width:0%}
 .preview-img{max-width:80vw; max-height:70vh; display:block; margin:auto}
 .preview-iframe{width:80vw; height:70vh; border:none}
 
@@ -619,6 +620,7 @@ a{color:var(--color-primary);text-decoration:none}
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -665,6 +667,7 @@ a{color:var(--color-primary);text-decoration:none}
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -888,4 +891,31 @@ a{color:var(--color-primary);text-decoration:none}
 .modal[open] .modal-content {
   animation: slideIn var(--modal-slide-duration) ease-out;
 }
+
+/* Subscriptions UI */
+.subscriptions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.subscription-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--color-surface);
+}
+.subscription-info { display: flex; flex-direction: column; }
+.subscription-name { font-weight: 600; color: var(--color-text); }
+.subscription-key { font-size: 0.85rem; color: var(--color-muted); }
+.subscription-remove.btn { padding: 6px 8px; }
+
+/* Utilities */
+.gap-sm { gap: 8px; }
+.mt-10 { margin-top: 10px; }
+.row-inline { display: flex; align-items: center; }
+.mt-8 { margin-top: 8px; }
+.mw-120 { max-width: 120px; }
 
