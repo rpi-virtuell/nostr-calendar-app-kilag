@@ -105,20 +105,22 @@
           <h4>👥 Abonnements</h4>
           <div class="settings-group gap-sm">
             <label for="subs-list-select">Meine Listen (NIP‑51):</label>
-            <div class="row row-inline gap-sm">
+            <div class="field">
               <select id="subs-list-select" aria-label="Liste wählen">
                 <option value="">–</option>
               </select>
-              <button id="subs-share-link" class="btn btn-ghost" type="button" title="Link zu dieser Liste kopieren">Teilen</button>
-              <button id="subs-save-as-own" class="btn" type="button" title="Diese Liste als eigene speichern">Als eigene Liste speichern</button>
+            </div>
+            <div class="row row-inline gap-sm buttons-two">
+              <button id="subs-share-link" class="btn btn-ghost btn-small" type="button" title="Link zu dieser Liste kopieren">Teilen</button>
+              <button id="subs-save-as-own" class="btn btn-small" type="button" title="Diese Liste als eigene speichern">Als eigene Liste speichern</button>
             </div>
           </div>
           <div class="settings-group gap-sm">
             <label for="subscription-input">Weiteren npub abonnieren:</label>
-            <div class="row row-inline gap-sm">
+            <div class="field">
               <input id="subscription-input" placeholder="npub1… oder 64-stelliger Hex" />
-              <button id="subscription-add" class="btn" type="button">Hinzufügen</button>
             </div>
+            <button id="subscription-add" class="btn btn-primary btn-small btn-block" type="button">Hinzufügen</button>
           </div>
           <div id="subscriptions-list" class="subscriptions-list mt-10"></div>
         </section>
