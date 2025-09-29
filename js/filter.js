@@ -18,6 +18,7 @@ class FilterManager {
     this.selectedTags = new Set();
     this.currentQuery = '';
     this.highlightedIndex = -1;
+  this.tagLabels = new Map();
 
     this.init();
   }
@@ -70,8 +71,11 @@ class FilterManager {
     // Suggestion Clicks
     if (this.tagSuggest) {
       this.tagSuggest.addEventListener('click', (e) => {
-        if (e.target.classList.contains('suggest-item')) {
-          this.selectTag(e.target.textContent.trim());
+        const item = e.target.closest('.suggest-item');
+        if (item) {
+          const key = item.dataset.key;
+          const label = item.dataset.label || item.textContent.trim();
+          this.selectTag(key, label);
         }
       });
     }
@@ -107,21 +111,32 @@ class FilterManager {
     try {
       // Sammle alle Tags aus den Events
       const events = window.allEvents || [];
-      const tagCounts = new Map();
+  const tagCounts = new Map();
 
       events.forEach(event => {
         if (event.tags) {
           event.tags.forEach(tag => {
             if (tag[0] === 't' && tag[1]) {
-              const tagName = tag[1].toLowerCase();
-              tagCounts.set(tagName, (tagCounts.get(tagName) || 0) + 1);
+              const rawTag = String(tag[1]);
+              const tagKey = rawTag.toLowerCase();
+              const entry = tagCounts.get(tagKey);
+
+              if (entry) {
+                entry.count += 1;
+                if (rawTag !== rawTag.toLowerCase() && entry.label === entry.label.toLowerCase()) {
+                  entry.label = rawTag;
+                }
+              } else {
+                tagCounts.set(tagKey, { count: 1, label: rawTag });
+              }
             }
           });
         }
       });
 
       // Sortiere nach Häufigkeit
-      this.allTags = new Map([...tagCounts.entries()].sort((a, b) => b[1] - a[1]));
+      this.allTags = new Map([...tagCounts.entries()].sort((a, b) => b[1].count - a[1].count));
+      this.tagLabels = new Map(Array.from(this.allTags.entries()).map(([key, info]) => [key, info.label]));
       this.updateSuggestions();
     } catch (error) {
       console.error('Fehler beim Laden der Tags:', error);
@@ -159,9 +174,11 @@ class FilterManager {
       case 'Enter':
         e.preventDefault();
         if (this.highlightedIndex >= 0 && this.filteredTags[this.highlightedIndex]) {
-          this.selectTag(this.filteredTags[this.highlightedIndex].label);
+          const item = this.filteredTags[this.highlightedIndex];
+          this.selectTag(item.key, item.label);
         } else if (this.currentQuery) {
-          this.selectTag(this.currentQuery);
+          const typedLabel = this.tagInput ? this.tagInput.value.trim() : this.currentQuery;
+          this.selectTag(this.currentQuery, typedLabel);
         }
         break;
       case 'Escape':
@@ -197,18 +214,18 @@ class FilterManager {
 
     if (this.currentQuery) {
       // Filtere Tags nach Query
-      for (const [tag, count] of this.allTags) {
-        if (tag.includes(this.currentQuery)) {
-          this.filteredTags.push({ label: tag, count });
+      for (const [key, info] of this.allTags) {
+        if (key.includes(this.currentQuery)) {
+          this.filteredTags.push({ key, label: info.label, count: info.count });
         }
       }
     } else {
       // Zeige die häufigsten Tags nur wenn Input fokussiert ist
       if (this.tagInput && document.activeElement === this.tagInput) {
         let i = 0;
-        for (const [tag, count] of this.allTags) {
+        for (const [key, info] of this.allTags) {
           if (i >= 20) break; // Max 20 Vorschläge
-          this.filteredTags.push({ label: tag, count });
+          this.filteredTags.push({ key, label: info.label, count: info.count });
           i++;
         }
       }
@@ -234,7 +251,8 @@ class FilterManager {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = `suggest-item ${index === this.highlightedIndex ? 'highlighted' : ''}`;
-      item.setAttribute('data-key', tag.label);
+      item.setAttribute('data-key', tag.key);
+      item.setAttribute('data-label', tag.label);
 
       const label = document.createElement('span');
       label.textContent = tag.label;
@@ -315,41 +333,45 @@ class FilterManager {
   /**
    * Wählt einen Tag aus
    */
-  selectTag(tagLabel) {
-    if (!tagLabel || tagLabel.trim() === '') return;
+  selectTag(tagKey, displayLabel) {
+    const normalizedKey = (tagKey || '').toLowerCase().trim();
+    if (!normalizedKey) return;
 
-    // Entferne Count-Anzeige aus dem Tag-Namen (z.B. "heterogenität(18)" -> "heterogenität")
-    const cleanTagLabel = tagLabel.replace(/\s*\(\d+\)\s*$/, '').toLowerCase().trim();
-    console.log('[FilterManager] Tag ausgewählt:', tagLabel, '->', cleanTagLabel);
+    const rawLabel = (displayLabel || tagKey || '').replace(/\s*\(\d+\)\s*$/, '').trim();
+    const cleanLabel = rawLabel || normalizedKey;
 
-    this.addTag(cleanTagLabel);
+    console.log('[FilterManager] Tag ausgewählt:', { key: normalizedKey, label: cleanLabel });
+
+    this.addTag(normalizedKey, cleanLabel);
     this.clearTagInput();
     this.hideSuggestions();
-
-    // Stelle sicher, dass die Event-Tiles aktualisiert werden
-    this.emitFilterChange('tag', cleanTagLabel);
   }
 
   /**
    * Fügt einen Tag hinzu
    */
-  addTag(tag) {
-    if (!tag || this.selectedTags.has(tag)) return;
+  addTag(tag, label = null) {
+    const normalizedTag = (tag || '').toLowerCase().trim();
+    if (!normalizedTag || this.selectedTags.has(normalizedTag)) return;
 
-    console.log('[FilterManager] Tag hinzugefügt:', tag);
-    this.selectedTags.add(tag);
+    const displayLabel = (label || this.tagLabels.get(normalizedTag) || tag || '').trim() || normalizedTag;
+    this.tagLabels.set(normalizedTag, displayLabel);
+
+    console.log('[FilterManager] Tag hinzugefügt:', normalizedTag, 'Label:', displayLabel);
+    this.selectedTags.add(normalizedTag);
     this.renderSelectedTags();
-    this.emitFilterChange('tag', tag);
+    this.emitFilterChange('tag', normalizedTag);
   }
 
   /**
    * Entfernt einen Tag
    */
   removeTag(tag) {
-    if (this.selectedTags.has(tag)) {
-      this.selectedTags.delete(tag);
+    const normalizedTag = (tag || '').toLowerCase().trim();
+    if (this.selectedTags.has(normalizedTag)) {
+      this.selectedTags.delete(normalizedTag);
       this.renderSelectedTags();
-      this.emitFilterChange('tag', tag);
+      this.emitFilterChange('tag', normalizedTag);
     }
   }
 
@@ -368,7 +390,7 @@ class FilterManager {
       chip.className = 'chip';
 
       const label = document.createElement('span');
-      label.textContent = tag;
+      label.textContent = this.tagLabels.get(tag) || tag;
 
       const removeBtn = document.createElement('button');
       removeBtn.setAttribute('aria-label', 'Tag entfernen');
