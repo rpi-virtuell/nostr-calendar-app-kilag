@@ -139,6 +139,10 @@ export async function getAuthorMeta(npub) {
       let meta = null;
       try {
         meta = JSON.parse(event.content);
+        // Cache das vollständige Meta-Objekt für spätere Tooltips (z.B. nip05)
+        try {
+          localStorage.setItem('author_meta:' + npub, JSON.stringify(meta));
+        } catch {}
       } catch (e) {
         console.warn('JSON.parse for author meta failed:', e);
       }
