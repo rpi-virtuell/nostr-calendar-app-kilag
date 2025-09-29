@@ -101,13 +101,30 @@ export class NostrAuthPlugin extends AuthPluginInterface {
     await this.client.logout();
     this.currentMethod = null;
     
-    // Clear stored connection state
+    // Clear all stored authentication data (matching auth.js logout function)
     try {
+      localStorage.removeItem('nostr_sk_hex');
+      localStorage.removeItem('nip46_connect_uri');
+      localStorage.removeItem('nip46_client_sk_hex');
       localStorage.removeItem('nip46_connected');
       localStorage.removeItem('nip46_connected_pubkey');
+      
+      // Clear cookies (helper function from auth.js)
+      this.deleteCookie('nostr_manual_nsec');
+      
+      // Clear session storage
+      sessionStorage.removeItem('nostr_manual_nsec_plain');
     } catch (e) {
-      // Ignore
+      console.warn('[NostrAuth] Error clearing stored data:', e);
     }
+  }
+
+  // Helper function for deleting cookies (from auth.js)
+  deleteCookie(name) {
+    try {
+      document.cookie = name + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    } catch (e) { /* ignore */ }
+    try { localStorage.removeItem(name); } catch (e) { /* ignore */ }
   }
 
   async createEvent(eventData) {
