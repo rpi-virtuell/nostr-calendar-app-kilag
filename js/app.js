@@ -75,6 +75,9 @@ function initEls() {
   subsList: document.getElementById('subscriptions-list'),
   subsInput: document.getElementById('subscription-input'),
   subsAdd: document.getElementById('subscription-add'),
+  subsListSelect: document.getElementById('subs-list-select'),
+  subsShareLink: document.getElementById('subs-share-link'),
+  subsSaveAsOwn: document.getElementById('subs-save-as-own'),
     
     // Theme and other elements  
     monthGrid: document.getElementById('month-grid'),
@@ -634,6 +637,76 @@ document.addEventListener('DOMContentLoaded', async () => {
     inputEl: els.subsInput,
     addBtn: els.subsAdd
   });
+  // Listen-Auswahl (Dropdown) füllen bei Updates
+  window.addEventListener('subscriptions-lists-updated', (ev) => {
+    const lists = ev.detail?.lists || [];
+    const sel = els.subsListSelect;
+    if (!sel) return;
+    const currentD = Subscriptions.listConfig?.d;
+    sel.innerHTML = '<option value="">–</option>' + lists.map(l => {
+      const label = l.name || l.d;
+      const selected = (l.d === currentD) ? ' selected' : '';
+      return `<option value="${encodeURIComponent(l.d)}"${selected}>${label}</option>`;
+    }).join('');
+  });
+
+  // Dropdown: Liste wechseln
+  if (els.subsListSelect) {
+    els.subsListSelect.addEventListener('change', async (e) => {
+      const d = decodeURIComponent(e.target.value || '');
+      if (!d) return;
+      await Subscriptions.setActiveListD(d);
+    });
+  }
+
+  // Teilen-Button: URL mit d & owner kopieren
+  if (els.subsShareLink) {
+    els.subsShareLink.addEventListener('click', async () => {
+      try {
+        const d = Subscriptions.listConfig?.d;
+        // owner = aktueller Nutzer (npub), wenn verfügbar
+        let ownerNpub = null;
+        if (client?.pubkey) {
+          // kleine NPUB-Hilfsfunktion nutzen aus Subscriptions
+          const hexToNpub = (h)=>{ try{ return Subscriptions && Subscriptions.items && Subscriptions.items.length>=0 ? (window.Subscriptions && window.Subscriptions.constructor && window.Subscriptions.constructor ? window.Subscriptions.constructor : null) : null; }catch{return null} };
+        }
+        let npub = null;
+        try { npub = client && client.hexToNpub ? client.hexToNpub(client.pubkey) : null; } catch {}
+        // Falls client kein helper hat, einfachen bech32 helper via Subscriptions (exposed in window?)
+        if (!npub) {
+          try { npub = window.hexToNpub ? window.hexToNpub(client.pubkey) : null; } catch {}
+        }
+        const url = new URL(location.href);
+        url.searchParams.set('d', d || 'nostr-calendar:subscriptions');
+        if (npub) url.searchParams.set('owner', npub);
+        await navigator.clipboard.writeText(url.toString());
+        showNotification('Link kopiert', 'success');
+      } catch (e) {
+        console.warn('Share link failed:', e);
+        showNotification('Konnte Link nicht kopieren', 'error');
+      }
+    });
+  }
+
+  // Als eigene Liste speichern: owner auf self setzen und publishen
+  if (els.subsSaveAsOwn) {
+    els.subsSaveAsOwn.addEventListener('click', async () => {
+      try {
+        if (!client?.pubkey) { alert('Bitte zuerst einloggen.'); return; }
+        // owner zurücksetzen
+        Subscriptions._listOwnerHex = null;
+        // optional: einen Namen für die Liste erfragen
+        const name = prompt('Name der neuen eigenen Liste (optional):', 'Meine Liste');
+        const d = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+        await Subscriptions.setActiveListD(d, { name: name || null });
+        await Subscriptions.saveToNip51();
+        showNotification('Liste als eigene gespeichert.', 'success');
+      } catch (e) {
+        console.warn('Save as own failed:', e);
+        showNotification('Speichern fehlgeschlagen', 'error');
+      }
+    });
+  }
 
   // Sync subscriptions with contacts when auth changes
   if (window.authManager) {

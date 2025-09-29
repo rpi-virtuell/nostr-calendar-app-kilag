@@ -780,3 +780,5 @@ class SubscriptionsManager {
 
 export const Subscriptions = new SubscriptionsManager();
 window.Subscriptions = Subscriptions;
+// Kleiner Helper global, um npub aus hex zu bilden (für Share-Links etc.)
+window.hexToNpub = hexToNpub;
