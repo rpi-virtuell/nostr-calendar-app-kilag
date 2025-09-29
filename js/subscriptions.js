@@ -295,10 +295,14 @@ class SubscriptionsManager {
       await client.initPool();
       const kind = (this.listConfig.kind || 30000);
       const filter = { kinds: [kind], authors: [pubkeyHex] };
-      const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+      // Bevorzugt über alle Relays sammeln, damit frisch publizierte Events (Bunker/NIP-46) sicher gefunden werden
       let events = [];
-      try { events = await client.listByWebSocketOne(relay, filter, 2500); } catch {
-        try { events = await client.listFromPool(Config.relays, filter, 3500); } catch { events = []; }
+      try { events = await client.listFromPool(Config.relays, filter, 3500); } catch {
+        // Fallback: schnellstes Relay
+        try {
+          const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+          events = await client.listByWebSocketOne(relay, filter, 2500);
+        } catch { events = []; }
       }
       const byD = new Map();
       (events || []).forEach(ev => {
@@ -424,7 +428,7 @@ class SubscriptionsManager {
       await client.initPool();
       const now = Math.floor(Date.now() / 1000);
       const d = this.listConfig.d;
-      const tags = [['d', d]];
+  const tags = [['d', d]];
       const seen = new Set();
       for (const it of this.items) {
         const hex = toHexOrNull(it.hex || it.key);
@@ -434,26 +438,24 @@ class SubscriptionsManager {
         const arr = pet ? ['p', hex, '', pet] : ['p', hex];
         tags.push(arr);
       }
-      // Optional: name/description Tags aus Config
+  // Optional: name/description Tags aus Config
       if (this.listConfig.name) tags.push(['name', this.listConfig.name]);
       if (this.listConfig.description) tags.push(['description', this.listConfig.description]);
-      const evt = { kind: this.listConfig.kind || 30000, content: '', tags, created_at: now };
-      const signed = await client.signer.signEvent(evt);
-
-      let pubs = [];
-      try { pubs = client.pool.publish ? client.pool.publish(Config.relays, signed) : []; } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
-      if (Array.isArray(pubs) && pubs.length) {
-        const wait = pubs.map(p => (typeof p?.then === 'function') ? p.catch(()=>{}) : new Promise(res=>{
-          try {
-            p.on?.('ok', res); p.on?.('failed', res); p.on?.('seen', res); p.on?.('error', res);
-            setTimeout(res, 1200);
-          } catch { setTimeout(res, 200); }
-        }));
-        await Promise.race(wait);
-        await Promise.allSettled(wait);
-      } else {
-        await new Promise(res => setTimeout(res, 200));
-      }
+  // Optional: App-Tag für Policy/Client-Erkennung
+  if (Array.isArray(Config.appTag)) tags.push(Config.appTag);
+  const evt = { kind: this.listConfig.kind || 30000, content: '', tags, created_at: now };
+  console.info('[Subscriptions] saveToNip51 signing', { relays: Config.relays, evt });
+  const signed = await client.signEventWithTimeout(evt, 10000);
+  console.info('[Subscriptions] saveToNip51 publish', { relays: Config.relays, evt });
+      await client.publishToRelays(Config.relays, signed, 1600);
+      // Nach erfolgreichem Publish: Listen neu laden, damit Dropdown sofort aktualisiert
+      try {
+        if (client && client.pubkey) {
+          await this.listAllNip51Lists(client.pubkey).catch(()=>{});
+          // Owner ist ab jetzt sicher der eigene Key
+          this._listOwnerHex = client.pubkey;
+        }
+      } catch {}
       return true;
     } catch (e) { console.warn('[Subscriptions] saveToNip51 failed:', e); return false; }
   }
@@ -473,8 +475,12 @@ class SubscriptionsManager {
       }
       if (!events || !events.length) {
         this._contactsCreatedAt = 0;
-        // Wenn keine Kontakte vorhanden: vorhandene lokale Liste ggf. veröffentlichen
-        if (this.items && this.items.length) this._debouncedSaveAll();
+        // Früher: automatische Veröffentlichung der lokalen Liste.
+        // Das führte bei NIP-46/Bunker zu ungewollten Hintergrund-Signaturversuchen.
+        // Jetzt kein Auto-Publish mehr – nur noch auf explizite Nutzeraktionen (add/remove/save-as-own).
+        if (this.items && this.items.length) {
+          console.info('[Subscriptions] Kontakte leer auf Relays – Auto-Publish unterdrückt (nur bei Nutzeraktion).');
+        }
         return false;
       }
       // Neueste nehmen
@@ -600,39 +606,12 @@ class SubscriptionsManager {
         const arr = pet ? ['p', hex, '', pet] : ['p', hex];
         tags.push(arr);
       }
-      const evt = { kind: 3, content: '', tags, created_at: now };
-      const signed = await client.signer.signEvent(evt);
-
-      let pubs = [];
-      try { pubs = client.pool.publish ? client.pool.publish(Config.relays, signed) : []; } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
-      const makePubPromise = (p, timeout = 1200) => {
-        if (!p) return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
-        if (typeof p.then === 'function') {
-          return Promise.race([
-            p.then(() => ({ ok: true })).catch(err => ({ ok: false, err })),
-            new Promise(res => setTimeout(() => res({ ok: null }), timeout))
-          ]);
-        }
-        if (typeof p.on === 'function') {
-          return new Promise(res => {
-            let settled = false;
-            const cleanup = () => { settled = true; try { p.off && p.off('ok', onOk); } catch {} try { p.off && p.off('failed', onFailed); } catch {} try { p.off && p.off('seen', onSeen); } catch {} try { p.off && p.off('error', onFailed); } catch {}; clearTimeout(timer); };
-            const onOk = () => { if (!settled) { cleanup(); res({ ok: true }); } };
-            const onFailed = (msg) => { if (!settled) { cleanup(); res({ ok: false, msg }); } };
-            const onSeen = () => { if (!settled) { cleanup(); res({ ok: true, seen: true }); } };
-            const timer = setTimeout(() => { if (!settled) { cleanup(); res({ ok: null }); } }, 1200);
-            try { p.on('ok', onOk); p.on('failed', onFailed); p.on('seen', onSeen); p.on('error', onFailed); } catch (e) { if (!settled) { cleanup(); res({ ok: null }); } }
-          });
-        }
-        return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
-      };
-      if (Array.isArray(pubs) && pubs.length) {
-        const pPromises = pubs.map(p => makePubPromise(p, 800));
-        await Promise.race(pPromises);
-        await Promise.allSettled(pPromises);
-      } else {
-        await new Promise(res => setTimeout(res, 200));
-      }
+  // Optional: App-Tag für Policy/Client-Erkennung
+  if (Array.isArray(Config.appTag)) tags.push(Config.appTag);
+  const evt = { kind: 3, content: '', tags, created_at: now };
+  const signed = await client.signEventWithTimeout(evt, 10000);
+      console.debug('[Subscriptions] saveToContacts publish', { relays: Config.relays, evt });
+      await client.publishToRelays(Config.relays, signed, 1600);
       return true;
     } catch (e) {
       console.warn('[Subscriptions] saveToContacts failed:', e);

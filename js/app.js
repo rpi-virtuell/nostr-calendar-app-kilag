@@ -663,22 +663,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (els.subsShareLink) {
     els.subsShareLink.addEventListener('click', async () => {
       try {
-        const d = Subscriptions.listConfig?.d;
-        // owner = aktueller Nutzer (npub), wenn verfügbar
-        let ownerNpub = null;
-        if (client?.pubkey) {
-          // kleine NPUB-Hilfsfunktion nutzen aus Subscriptions
-          const hexToNpub = (h)=>{ try{ return Subscriptions && Subscriptions.items && Subscriptions.items.length>=0 ? (window.Subscriptions && window.Subscriptions.constructor && window.Subscriptions.constructor ? window.Subscriptions.constructor : null) : null; }catch{return null} };
-        }
+        const d = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+        // owner = Owner der aktuell ausgewählten Liste (foreign oder self)
+        let ownerHex = Subscriptions?._listOwnerHex || client?.pubkey || null;
         let npub = null;
-        try { npub = client && client.hexToNpub ? client.hexToNpub(client.pubkey) : null; } catch {}
-        // Falls client kein helper hat, einfachen bech32 helper via Subscriptions (exposed in window?)
-        if (!npub) {
-          try { npub = window.hexToNpub ? window.hexToNpub(client.pubkey) : null; } catch {}
+        if (ownerHex) {
+          try { npub = window.hexToNpub ? window.hexToNpub(ownerHex) : null; } catch {}
         }
         const url = new URL(location.href);
-        url.searchParams.set('d', d || 'nostr-calendar:subscriptions');
-        if (npub) url.searchParams.set('owner', npub);
+        // Nur gewünschte Parameter setzen/ersetzen
+        url.searchParams.set('d', d);
+        if (npub) url.searchParams.set('owner', npub); else url.searchParams.delete('owner');
         await navigator.clipboard.writeText(url.toString());
         showNotification('Link kopiert', 'success');
       } catch (e) {
@@ -695,11 +690,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!client?.pubkey) { alert('Bitte zuerst einloggen.'); return; }
         // owner zurücksetzen
         Subscriptions._listOwnerHex = null;
-        // optional: einen Namen für die Liste erfragen
-        const name = prompt('Name der neuen eigenen Liste (optional):', 'Meine Liste');
-        const d = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+  try { localStorage.removeItem('nostr_calendar_list_owner'); } catch {}
+        // optional: d und Name erfragen
+        const currentD = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+        const d = prompt('Listen-ID (d) wählen/setzen:', currentD) || currentD;
+        const name = prompt('Name der Liste (optional):', Subscriptions.listConfig?.name || 'Meine Liste');
         await Subscriptions.setActiveListD(d, { name: name || null });
         await Subscriptions.saveToNip51();
+        // Nach Publish Dropdown aktualisieren
+        try { await Subscriptions.listAllNip51Lists(client.pubkey); } catch {}
         showNotification('Liste als eigene gespeichert.', 'success');
       } catch (e) {
         console.warn('Save as own failed:', e);

@@ -40,22 +40,19 @@ async function loadTools() {
     pure: [
       'https://esm.sh/nostr-tools@2.8.1/pure',
       'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pure.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/pure.js',
-      'https://esm.sh/nostr-tools/pure'
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pure.js'
 
       
     ],
     pool: [
       'https://esm.sh/nostr-tools@2.8.1/pool',
       'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/pool.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/pool.js',
-      'https://esm.sh/nostr-tools/pool'
+      'https://unpkg.com/nostr-tools@2.8.1/esm/pool.js'
     ],
     nip46: [
       'https://esm.sh/nostr-tools@2.8.1/nip46',
       'https://cdn.jsdelivr.net/npm/nostr-tools@2.8.1/esm/nip46.js',
-      'https://unpkg.com/nostr-tools@2.8.1/esm/nip46.js',
-      'https://esm.sh/nostr-tools/nip46'
+      'https://unpkg.com/nostr-tools@2.8.1/esm/nip46.js'
     ]
   };
 
@@ -64,6 +61,7 @@ async function loadTools() {
     for (const url of list) {
       try {
         const mod = await import(url);
+        try { mod.__srcURL = url; } catch {}
         if (validate) {
           const ok = validate(mod);
           if (!ok) {
@@ -72,6 +70,7 @@ async function loadTools() {
             continue;
           }
         }
+        console.info('[loadTools] loaded module from', url);
         return mod;
       } catch (e) {
         lastErr = e;
@@ -132,6 +131,23 @@ export class NostrClient {
     this.fastRelay = null;         // gemessener schnellster Relay
     this.fastProbeAt = 0;          // timestamp der letzten Messung
     this.fastProbeTTL = 5 * 60e3;  // 5 Minuten Cache
+
+    // Serialize remote sign ops (NIP-46) to prevent overlapping requests
+    this._signQueue = Promise.resolve();
+    this._signQueueSize = 0;
+  }
+
+  // ---- Small queue to serialize sign_event calls for nip46
+  _withSignLock(taskFn) {
+    const run = async () => {
+      try { this._signQueueSize++; console.debug('[signLock] enter, size=', this._signQueueSize); } catch {}
+      try { return await taskFn(); }
+      finally { this._signQueueSize = Math.max(0, this._signQueueSize - 1); try { console.debug('[signLock] leave, size=', this._signQueueSize); } catch {} }
+    };
+    const p = this._signQueue.then(run, run);
+    // keep chain going regardless of outcome
+    this._signQueue = p.catch(() => {});
+    return p;
   }
 
   // ---- Pool init (versch. Export-Namen unterstützen)
@@ -457,12 +473,14 @@ export class NostrClient {
           onauth: (url) => {
             console.debug('[Bunker] Auth URL received:', url);
             authTriggered = true;
+            try { localStorage.setItem('nip46_last_auth_url', url); } catch {}
             if (openAuth) {
               try {
                 const w = window.open(url, '_blank', 'noopener,noreferrer');
                 if (!w) {
                   navigator.clipboard?.writeText(url).catch(()=>{});
                   console.warn('[Bunker] Popup blocked, URL copied to clipboard');
+                  try { alert('Bitte diese Autorisierungs-URL öffnen:\n' + url); } catch {}
                 }
               } catch (e) {
                 navigator.clipboard?.writeText(url).catch(()=>{});
@@ -487,6 +505,30 @@ export class NostrClient {
           signer = new BunkerSigner(skBytes, pointerForSigner, legacyOptions);
         }
         try {
+          // Wrap core calls for better visibility
+          try {
+            if (signer && typeof signer.getPublicKey === 'function' && !signer._wrappedGetPk) {
+              const __getPk = signer.getPublicKey.bind(signer);
+              signer.getPublicKey = async (...a) => {
+                const t0 = Date.now();
+                console.debug('[Bunker] getPublicKey() called');
+                try { const r = await __getPk(...a); console.debug('[Bunker] getPublicKey() ok in', Date.now()-t0, 'ms'); return r; }
+                catch (e) { console.warn('[Bunker] getPublicKey() error', e && (e.message||e)); throw e; }
+              };
+              signer._wrappedGetPk = true;
+            }
+            if (signer && typeof signer.signEvent === 'function' && !signer._wrappedSign) {
+              const __sign = signer.signEvent.bind(signer);
+              signer.signEvent = async (ev) => {
+                const t0 = Date.now();
+                try { console.debug('[Bunker] signEvent() called kind=', ev && ev.kind); } catch {}
+                try { const r = await __sign(ev); console.debug('[Bunker] signEvent() ok in', Date.now()-t0, 'ms'); return r; }
+                catch (e) { console.warn('[Bunker] signEvent() error', e && (e.message||e)); throw e; }
+              };
+              signer._wrappedSign = true;
+            }
+          } catch (e) { console.warn('[Bunker] wrap methods failed', e); }
+
           if (signer && signer.pool && !signer.pool._bunkerWrapped) {
             const origPublish = signer.pool.publish?.bind(signer.pool);
             if (origPublish) {
@@ -533,7 +575,9 @@ export class NostrClient {
       }
     };
 
-    bunker = createBunker();
+  bunker = createBunker();
+  // Keep a handle for later reconnect attempts during signing
+  try { this._bunker = bunker; } catch {}
 
     // Starten, aber NICHT awaiten – manche Builds resolven nie zuverlässig
     // Fehler werden geloggt, aber wir verlassen uns auf getPublicKey()-Polling unten.
@@ -649,6 +693,36 @@ export class NostrClient {
       window.dispatchEvent(new CustomEvent('nip46-connected', { detail: { pubkey: this.pubkey } }));
     } catch {}
 
+    // Preflight sign_event entfernt: kein automatischer Signaturversuch beim Laden
+
+    // Convenience helper to open last auth URL again (debug)
+    try {
+      window.nip46 = window.nip46 || {};
+      window.nip46.openLastAuth = () => {
+        try {
+          const url = localStorage.getItem('nip46_last_auth_url');
+          if (url) {
+            const w = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!w) alert('Autorisierungs-URL:\n' + url);
+            return true;
+          } else {
+            alert('Keine gespeicherte Autorisierungs-URL gefunden.');
+            return false;
+          }
+        } catch (e) {
+          console.warn('openLastAuth failed:', e);
+          return false;
+        }
+      };
+      window.nip46.testSign = async (kind = 1) => client._diagSign(kind);
+      window.nip46.testSignKinds = async (...kinds) => {
+        const list = kinds.length ? kinds : [1, 3, 30000];
+        const out = [];
+        for (const k of list) out.push(await client._diagSign(k));
+        return out;
+      };
+    } catch {}
+
     return { method: 'nip46', pubkey: this.pubkey, relay: (chosenRelay || pointer?.relays?.[0] || null) };
    } finally {
      this._nip46Connecting = false;
@@ -675,6 +749,20 @@ export class NostrClient {
     return { evt: { kind: 31923, created_at: Math.floor(Date.now() / 1000), tags, content: data.content || '' }, d };
   }
 
+  // ---- Diagnostics: probe signing capabilities for current signer
+  async _diagSign(kind) {
+    const evt = { kind, content: kind === 1 ? 'diag' : '', tags: [], created_at: Math.floor(Date.now() / 1000) };
+    const t0 = Date.now();
+    try {
+      const signed = await this.signEventWithTimeout(evt, 7000);
+      console.info('[diagSign] kind', kind, 'ok in', Date.now() - t0, 'ms');
+      return { ok: true, kind, ms: Date.now() - t0, id: signed && signed.id };
+    } catch (e) {
+      console.warn('[diagSign] kind', kind, 'failed:', e && (e.message || e));
+      return { ok: false, kind, error: (e && (e.message || String(e))) };
+    }
+  }
+
   // ---- Publish
   async publish(data) {
     if (!this.signer) await this.login();
@@ -687,7 +775,10 @@ export class NostrClient {
     // verhindert unhandled promise rejections, indem wir alle relevanten
     // Events (ok/failed/seen/error) abonnieren und Promise niemals ablehnen.
     let pubs = [];
-    try { pubs = this.pool.publish ? this.pool.publish(Config.relays, signed) : []; } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
+    try {
+      console.debug('[publish] pool.publish', Config.relays, signed);
+      pubs = this.pool.publish ? this.pool.publish(Config.relays, signed) : [];
+    } catch (e) { console.warn('pool.publish sync error', e); pubs = []; }
   
     const makePubPromise = (p, timeout = 1200) => {
       if (!p) return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
@@ -811,6 +902,226 @@ export class NostrClient {
     } catch (err) {
       console.error('fetchEvents failed:', err);
       return [];
+    }
+  }
+
+  // ---- Robustes Publish eines bereits signierten Events zu mehreren Relays
+  async publishToRelays(relays, signedEvent, timeoutMs = 1500) {
+    await this.initPool();
+  try { console.info('[publishToRelays] relays=', relays, 'kind=', signedEvent?.kind, 'created_at=', signedEvent?.created_at); } catch {}
+    let pubs = [];
+    try {
+      if (this.pool && typeof this.pool.publish === 'function') {
+        pubs = this.pool.publish(relays, signedEvent) || [];
+      }
+    } catch (e) {
+      console.warn('[publishToRelays] pool.publish failed:', e);
+      pubs = [];
+    }
+
+    const makePubPromise = (p, timeout = 1200) => {
+      if (!p) return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
+      if (typeof p.then === 'function') {
+        return Promise.race([
+          p.then(() => ({ ok: true })).catch(err => ({ ok: false, err })),
+          new Promise(res => setTimeout(() => res({ ok: null }), timeout))
+        ]);
+      }
+      if (typeof p.on === 'function') {
+        return new Promise(res => {
+          let settled = false;
+          const cleanup = () => {
+            settled = true; try { p.off && p.off('ok', onOk); } catch {}
+            try { p.off && p.off('failed', onFailed); } catch {}
+            try { p.off && p.off('seen', onSeen); } catch {}
+            try { p.off && p.off('error', onFailed); } catch {}
+            clearTimeout(timer);
+          };
+          const onOk = () => { if (!settled) { cleanup(); res({ ok: true }); } };
+          const onFailed = (msg) => { if (!settled) { cleanup(); res({ ok: false, msg }); } };
+          const onSeen = () => { if (!settled) { cleanup(); res({ ok: true, seen: true }); } };
+          const timer = setTimeout(() => { if (!settled) { cleanup(); res({ ok: null }); } }, timeout);
+          try { p.on('ok', onOk); p.on('failed', onFailed); p.on('seen', onSeen); p.on('error', onFailed); } catch (e) { if (!settled) { cleanup(); res({ ok: null }); } }
+        });
+      }
+      return new Promise(res => setTimeout(() => res({ ok: null }), timeout));
+    };
+
+    if (Array.isArray(pubs) && pubs.length) {
+      const pPromises = pubs.map(p => makePubPromise(p, Math.min(1200, timeoutMs)));
+      await Promise.race(pPromises);
+      await Promise.allSettled(pPromises);
+      return true;
+    }
+
+    // Fallback: RAW-WebSocket EVENT senden
+    try {
+      await new Promise((resolve) => {
+        let remaining = (relays || []).length;
+        if (!remaining) return resolve(false);
+        const payload = JSON.stringify(['EVENT', signedEvent]);
+        (relays || []).forEach(url => {
+          let done = false; let ws;
+          const finish = () => { if (done) return; done = true; remaining--; if (remaining <= 0) resolve(true); };
+          const to = setTimeout(() => { finish(); try { ws && ws.close(); } catch {} }, timeoutMs);
+          try {
+            ws = new WebSocket(url);
+            ws.addEventListener('open', () => { try { console.info('[publishToRelays][raw] send EVENT to', url); ws.send(payload); } catch {} setTimeout(finish, 100); });
+            ws.addEventListener('error', finish);
+            ws.addEventListener('close', finish);
+          } catch { finish(); }
+        });
+      });
+      return true;
+    } catch (e) {
+      console.warn('[publishToRelays] raw publish failed:', e);
+      return false;
+    }
+  }
+
+  // ---- Signatur mit Timeout (sichtbares Logging, um NIP‑46 Hänger zu erkennen)
+  async signEventWithTimeout(evt, timeoutMs = 8000) {
+    if (!this.signer) await this.login();
+    const signer = this.signer;
+
+    // Event vorbereiten: viele Remote-Signer (NIP-46/Bunker) erwarten pubkey & created_at bereits gesetzt
+    const prepared = { ...(evt || {}) };
+    if (!prepared.kind && evt?.kind == null) {
+      throw new Error('signEvent: missing kind');
+    }
+    if (!Array.isArray(prepared.tags)) prepared.tags = Array.isArray(evt?.tags) ? [...evt.tags] : [];
+  if (!prepared.created_at) prepared.created_at = Math.floor(Date.now() / 1000);
+  if (typeof prepared.content !== 'string') prepared.content = prepared.content ? String(prepared.content) : '';
+    // id/sig niemals mitsenden – das macht der Signer
+    if ('id' in prepared) try { delete prepared.id; } catch {}
+    if ('sig' in prepared) try { delete prepared.sig; } catch {}
+
+    try {
+      const pkLocal = this.pubkey || (typeof signer.getPublicKey === 'function' ? await signer.getPublicKey() : null);
+      if (signer?.type === 'nip46') {
+        // Einige NIP-46-Remote-Signer erwarten Events OHNE pubkey und setzen ihn selbst
+        if ('pubkey' in prepared) try { delete prepared.pubkey; } catch {}
+      } else {
+        if (pkLocal && !prepared.pubkey) prepared.pubkey = pkLocal;
+        if (prepared.pubkey && this.pubkey && prepared.pubkey !== this.pubkey) {
+          console.warn('[signEventWithTimeout] pubkey mismatch: prepared.pubkey != this.pubkey');
+        }
+      }
+    } catch (e) {
+      // Wenn getPublicKey fehlschlägt, trotzdem versuchen zu signieren
+      console.debug('[signEventWithTimeout] getPublicKey failed (non-fatal):', e && (e.message || e));
+    }
+
+  // NIP-46: wir probieren zwei Varianten schnell hintereinander (mit/ohne pubkey)
+  const isNip46 = signer?.type === 'nip46';
+  const effectiveTimeout = isNip46 ? Math.max(5000, Math.min(timeoutMs, 10000)) : timeoutMs;
+  try { console.info('[signEventWithTimeout] start kind=', prepared?.kind, 'timeoutMs=', effectiveTimeout, 'hasPubkey=', !!prepared?.pubkey, 'signerType=', signer?.type); } catch {}
+
+    const attemptSign = async (toMs, evObj) => {
+      const exec = () => signer.signEvent(evObj);
+      return await Promise.race([
+        exec(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('signEvent timeout after ' + toMs + 'ms')), toMs))
+      ]);
+    };
+
+    try {
+      let res;
+      try {
+        // 1) erster Versuch: bei NIP‑46 mit pubkey (neue Bunker erwarten oft gesetzten pubkey)
+        const ev1 = isNip46 ? { ...prepared, pubkey: (this.pubkey || prepared.pubkey) } : prepared;
+        res = await attemptSign(effectiveTimeout, ev1);
+      } catch (e) {
+        if (signer?.type === 'nip46') console.warn('[signEventWithTimeout] nip46 signEvent threw before timeout:', e && (e.message || e));
+        // 2) zweiter Versuch (nur NIP‑46): ohne pubkey
+        if (isNip46) {
+          try {
+            const { pubkey: _pk, ...rest } = prepared;
+            const ev2 = { ...rest };
+            console.debug('[signEventWithTimeout] nip46 retry with event without pubkey');
+            res = await attemptSign(effectiveTimeout, ev2);
+          } catch (e2) {
+            throw e2;
+          }
+        } else {
+          throw e;
+        }
+      }
+      try { console.info('[signEventWithTimeout] done kind=', prepared?.kind); } catch {}
+      return res;
+    } catch (err) {
+      // Zielgerichteter Retry für NIP-46: kurze Pubkey-Abfrage + längeres Timeout
+      const msg = err && (err.message || String(err));
+      if (signer?.type === 'nip46') {
+        try {
+          console.warn('[signEventWithTimeout] first attempt failed on nip46:', msg, '→ retrying…');
+          // Hinweis/Prompt: Nutzer kann jetzt die Bunker-Auth-URL öffnen, um Signing zu erlauben
+          try {
+            const hint = localStorage.getItem('nip46_last_auth_url');
+            if (hint && typeof window !== 'undefined') {
+              // Nur einmal pro Retry höflich fragen
+              try {
+                const open = window.confirm('Die Signatur muss ggf. im Bunker bestätigt werden. Jetzt Bunker-Auth öffnen?');
+                if (open) {
+                  const w = window.open(hint, '_blank', 'noopener,noreferrer');
+                  if (!w) {
+                    navigator.clipboard?.writeText(hint).catch(()=>{});
+                    alert('Popup blockiert. Die Bunker-URL wurde in die Zwischenablage kopiert. Bitte manuell öffnen.');
+                  }
+                }
+              } catch {}
+            }
+          } catch {}
+          // poke signer to keep connection alive
+          try {
+            const resPk = await Promise.race([
+              signer.getPublicKey?.(),
+              new Promise((resolve) => setTimeout(() => resolve('__TIMEOUT__'), 1500))
+            ]);
+            console.debug('[signEventWithTimeout] nip46 getPublicKey after failure →', resPk);
+          } catch {}
+          // try reconnecting bunker transport if available
+          try {
+            if (this._bunker && typeof this._bunker.connect === 'function') {
+              console.debug('[signEventWithTimeout] trying bunker.connect() before retry…');
+              this._bunker.connect().catch(e => console.warn('bunker.connect() during retry failed:', e));
+            }
+          } catch {}
+          const longTimeout = Math.max(effectiveTimeout, 20000);
+          // 3) letzter Versuch: erst mit pubkey, dann ohne
+          const ev3a = { ...prepared, pubkey: (this.pubkey || prepared.pubkey) };
+          try {
+            const res2 = await attemptSign(longTimeout, ev3a);
+            try { console.info('[signEventWithTimeout] retry done kind=', prepared?.kind, '(with pubkey)'); } catch {}
+            return res2;
+          } catch (_) {
+            const { pubkey: _pk3, ...rest3 } = prepared; const ev3b = { ...rest3 };
+            const res2b = await attemptSign(longTimeout, ev3b);
+            try { console.info('[signEventWithTimeout] retry done kind=', prepared?.kind, '(without pubkey)'); } catch {}
+            return res2b;
+          }
+        } catch (err2) {
+          console.warn('[signEventWithTimeout] retry failed:', err2 && (err2.message || err2));
+          // Hinweis für manuellen Auth-Open, falls verfügbar
+          try {
+            const hint = localStorage.getItem('nip46_last_auth_url');
+            if (hint) console.info('[signEventWithTimeout] You may need to approve signing in bunker. Last auth URL is in localStorage[nip46_last_auth_url].');
+          } catch {}
+          // Zusatz-Diagnose: probiere eine schnelle kind-1-Signatur, um Policy-Probleme einzugrenzen
+          try {
+            const probe = await Promise.race([
+              this._diagSign(1),
+              new Promise(resolve => setTimeout(() => resolve({ ok:false, kind:1, error:'probe timeout'}), 3000))
+            ]);
+            console.info('[signEventWithTimeout] probe kind=1 →', probe);
+            if (probe && probe.ok && (prepared?.kind === 30000 || prepared?.kind === 3)) {
+              console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', prepared?.kind, 'nicht. Bitte in der Bunker-UI die Signatur für diese Event-Kinds erlauben (Contacts=3, People List=30000).');
+            }
+          } catch {}
+          throw err2;
+        }
+      }
+      throw err;
     }
   }
 }

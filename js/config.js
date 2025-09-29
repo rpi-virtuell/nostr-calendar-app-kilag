@@ -27,3 +27,16 @@ export const Config = {
   // App metadata for NIP-78 client tags
   appTag: ['client', 'nostr-calendar-demo']
 };
+
+// Dev-/Debug-Override: Relays per URL-Parameter setzen (?relay=wss://… oder ?relays=wss://a,wss://b)
+try {
+  const p = new URLSearchParams(location.search);
+  const raw = p.get('relays') || p.get('relay');
+  if (raw) {
+    const list = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length) {
+      Config.relays = list;
+      console.info('[Config] Using relays from URL:', Config.relays);
+    }
+  }
+} catch {}
