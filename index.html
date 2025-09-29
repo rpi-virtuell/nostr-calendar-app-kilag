@@ -19,22 +19,22 @@
     <div class="view-switch">
       <button id="btn-view-cards" class="btn btn-ghost">Grid Ansicht</button>
       <button id="btn-view-month" class="btn btn-ghost">Kalenderansicht</button>
+      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
     </div>
 
     <!-- Top-Actions (im Header) -->
     <div class="top-actions" style="display:flex; gap:8px; margin:0 12px;">
-      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
       <button id="btn-new" class="btn btn-primary" title="Neuen Termin anlegen">Neuer Termin</button>
       <button id="btn-media" class="btn">Media</button>
     </div>
 
     <!-- Sidebar Toggle -->
     <div id="auth-box" class="auth-box">
+      <div id="whoami" class="whoami"></div>
       <button id="sidebar-toggle" class="btn" title="Einstellungen & Login">
         <span id="sidebar-icon">≡</span>
       </button>
-      <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
-      <div id="whoami" class="whoami"></div>
+      
     </div>
   </header>
 
@@ -44,7 +44,8 @@
       <h3>Einstellungen</h3>
       <button id="sidebar-close" class="btn btn-ghost">✕</button>
     </div>
-    
+    <button id="btn-logout" class="btn btn-ghost hidden">🔑 Logout</button>
+      
     <div class="sidebar-content">
       <!-- Authentication Section -->
       <section class="sidebar-section auth">

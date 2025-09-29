@@ -9,7 +9,7 @@ import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
-import { setupBunkerEvents, initNip46FromUrl, connectBunker } from './bunker.js';
+import { setupBunkerEvents, initNip46FromUrl, connectBunker, autoReconnectBunker } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
 import { FilterManager } from './filter.js';
@@ -181,10 +181,24 @@ async function setupAuthButtons() {
     
     if (activeName === 'nostr' && authNostr) authNostr.classList.add('active');
     
-    // Update sidebar toggle icon
-    if (els.sidebarIcon) {
-      els.sidebarIcon.textContent = activePlugin ? '👤' : '≡';
+    // Update sidebar visibility based on login state
+    const authSection = document.querySelector('.sidebar-section.auth');
+    const logoutSection = document.querySelector('.sidebar-section.logout-section');
+    
+    if (activePlugin) {
+      // User is logged in - hide auth section, show logout
+      if (authSection) authSection.style.display = 'none';
+      if (logoutSection) logoutSection.classList.remove('hidden');
+    } else {
+      // User is not logged in - show auth section, hide logout
+      if (authSection) authSection.style.display = '';
+      if (logoutSection) logoutSection.classList.add('hidden');
     }
+    
+    // Update sidebar toggle icon
+    // if (els.sidebarIcon) {
+    //   els.sidebarIcon.textContent = activePlugin ? '👤' : '≡';
+    // }
   };
   
   // Nostr Key Login
@@ -783,8 +797,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // View Events
   function setView(name){
+    els.btnViewCards.classList.toggle('active', name === 'cards');
+    els.btnViewMonth.classList.toggle('active', name === 'month');
     currentView = (name === 'month') ? 'month' : 'cards';
     localStorage.setItem('view', currentView);
+
     renderCurrentView();
   }
   on(els.btnViewCards, 'click', ()=> setView('cards'));
@@ -793,6 +810,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Auto-Reconnect for Bunker (simplified)
   setupBunkerEvents(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
+  
+  // Auto-reconnect existing bunker connections
+  autoReconnectBunker(els.whoami, async () => {
     await authControls.updateAuthButtons();
   });
   
