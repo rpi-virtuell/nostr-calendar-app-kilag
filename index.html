@@ -53,10 +53,16 @@
       <h3>Einstellungen</h3>
       <button id="sidebar-close" class="btn btn-ghost">✕</button>
     </div>
-    <button id="btn-logout" class="btn btn-ghost hidden">🔑 Logout</button>
+    
       
     <div class="sidebar-content">
       <!-- Authentication Section -->
+      <section class="sidebar-section">
+        <h4>🔐 Du bist eingeloggt</h4>
+        <div class="field">
+          <button id="btn-logout" class="btn btn-ghost hidden">🔑 Logout</button>
+        </div>
+      </section>
       <section class="sidebar-section auth">
         <h4>🔐 Authentifizierung</h4>
         <div class="auth-options">
@@ -90,13 +96,17 @@
       <!-- Settings Section -->
       <section class="sidebar-section">
         <h4>⚙️ Einstellungen</h4>
-        <div class="settings-group">
-          <label for="sidebar-theme-select">Theme:</label>
-          <select id="sidebar-theme-select" class="form-control">
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="custom">Custom</option>
-          </select>
+        <div class="field">
+          
+        
+          <div class="settings-group">
+            <label for="sidebar-theme-select">Theme:</label>
+            <select id="sidebar-theme-select" class="form-control">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
         </div>
       </section>
       
@@ -104,44 +114,49 @@
         <section class="sidebar-section">
           <h4>👥 Abonnements</h4>
           <div class="settings-group gap-sm">
-            <label for="subs-list-select">Meine Listen (NIP‑51):</label>
             <div class="field">
+              <label for="subs-list-select">Meine Listen (NIP‑51):</label>
+            
               <select id="subs-list-select" aria-label="Liste wählen">
                 <option value="">–</option>
               </select>
             </div>
-            <div class="row row-inline gap-sm buttons-two">
-              <button id="subs-share-link" class="btn btn-ghost btn-small" type="button" title="Link zu dieser Liste kopieren">Teilen</button>
-              <button id="subs-save-as-own" class="btn btn-small" type="button" title="Diese Liste als eigene speichern">Als eigene Liste speichern</button>
-            </div>
-          </div>
-          <div class="settings-group gap-sm">
-            <label for="subscription-input">Weiteren npub abonnieren:</label>
-            <div class="field">
-              <input id="subscription-input" placeholder="npub1… oder 64-stelliger Hex" />
-            </div>
-            <button id="subscription-add" class="btn btn-primary btn-small btn-block" type="button">Hinzufügen</button>
+            
           </div>
           <div id="subscriptions-list" class="subscriptions-list mt-10"></div>
+          <div class="settings-group gap-sm">
+            <div class="field">
+              <label for="subscription-input">Weiteren npub abonnieren:</label>
+              <input id="subscription-input" placeholder="npub1… oder 64-stelliger Hex" />
+              <button id="subscription-add" class="btn btn-primary btn-ghost btn-small btn-block" type="button">Hinzufügen</button>
+            </div>
+            
+            <div class="row row-inline gap-sm buttons-two">
+              <button id="subs-share-link" class="btn btn-ghost btn-small" type="button" title="Link zu dieser Liste kopieren">Liste teilen</button>
+              <button id="subs-save-as-own" class="btn btn-small" type="button" title="Diese Liste als eigene speichern">Liste speichern</button>
+            </div>
+          </div>
+          
         </section>
 
       <!-- Import/Export Section -->
       <section class="sidebar-section">
         <h4>📁 Import/Export</h4>
         <div class="action-buttons">
-          <button id="sidebar-ics-import" class="sidebar-btn">
-            <span class="auth-icon">📥</span>
-            <div class="auth-details">
-              <div class="auth-title">ICS Import</div>
-            </div>
-          </button>
-          
-          <button id="sidebar-ics-export" class="sidebar-btn">
-            <span class="auth-icon">📤</span>
-            <div class="auth-details">
-              <div class="auth-title">ICS Export</div>
-            </div>
-          </button>
+          <div class="field">
+            <button id="sidebar-ics-import" class="sidebar-btn">
+              <span class="auth-icon">📥</span>
+              <div class="auth-details">
+                <div class="auth-title">ICS Import</div>
+              </div>
+            </button>
+            <button id="sidebar-ics-export" class="sidebar-btn">
+              <span class="auth-icon">📤</span>
+              <div class="auth-details">
+                <div class="auth-title">ICS Export</div>
+              </div>
+            </button>
+          </div>
         </div>
       </section>
     </div>
