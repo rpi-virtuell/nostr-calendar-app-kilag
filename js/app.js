@@ -635,6 +635,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     addBtn: els.subsAdd
   });
 
+  // Sync subscriptions with contacts when auth changes
+  if (window.authManager) {
+    try {
+      window.authManager.onChange(async () => {
+        try { await Subscriptions.handleAuthChange(); } catch (e) { console.warn('Subscriptions.handleAuthChange error', e); }
+      });
+      // Initial check in case already logged in
+      try { await Subscriptions.handleAuthChange(); } catch {}
+    } catch {}
+  }
+
   // React on subscription changes -> refresh event list
   window.addEventListener('subscriptions-changed', async () => {
     try {
