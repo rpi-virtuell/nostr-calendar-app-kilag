@@ -511,7 +511,7 @@ function showNotification(message, type = 'info') {
   };
   
   notification.style.cssText = `
-    position: fixed; top: 20px; right: 20px; z-index: 10000;
+    position: fixed; bottom: 20px; right: 20px; z-index: 10000;
     background: ${colors[type] || colors.info}; color: white; padding: 15px 20px;
     border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     font-family: system-ui, sans-serif; font-size: 14px;

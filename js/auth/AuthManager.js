@@ -60,6 +60,7 @@ export class AuthManager {
    */
   async setupUI(elements, onChange) {
     this.uiElements = elements;
+      
     if (onChange) this.changeCallbacks.push(onChange);
 
     // Setup logout handler
@@ -208,8 +209,31 @@ export class AuthManager {
   async updateUI() {
     if (this.currentPlugin) {
       await this.currentPlugin.updateAuthUI(this.uiElements);
+      const sidebarwhoami = document.querySelector('#sidebar-whoami');
+      if (sidebarwhoami) {
+        sidebarwhoami.textContent = this.uiElements.whoami.textContent;
+      }
+      
+      const is_logged_in = await this.getPublicKey();
+      if (is_logged_in !== null) {
+        const logoutSection = document.querySelector('.sidebar-section.logout');
+        if (logoutSection) {
+          logoutSection.classList.remove('hidden');
+        }
+        
+      }else{
+        const logoutSection = document.querySelector('.sidebar-section.logout');  
+        if (logoutSection) {
+          logoutSection.classList.add('hidden');
+        }
+      }
+    
     } else {
       this.updateNoAuthUI();
+      const logoutSection = document.querySelector('.sidebar-section.logout');  
+      if (logoutSection) {
+        logoutSection.classList.add('hidden');
+      }
     }
   }
 
@@ -230,6 +254,7 @@ export class AuthManager {
       btnNew.disabled = true;
       btnNew.title = 'Bitte zuerst einloggen';
     }
+    
   }
 
   /**

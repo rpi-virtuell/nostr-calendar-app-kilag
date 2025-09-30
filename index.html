@@ -57,10 +57,11 @@
       
     <div class="sidebar-content">
       <!-- Authentication Section -->
-      <section class="sidebar-section">
-        <h4>🔐 Du bist eingeloggt</h4>
+      <section class="sidebar-section logout hidden">
+        <h4>🔓 Du bist eingeloggt</h4>
+        <div id="sidebar-whoami" class="muted"></div>
         <div class="field">
-          <button id="btn-logout" class="btn btn-ghost hidden">🔑 Logout</button>
+          <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
         </div>
       </section>
       <section class="sidebar-section auth">
@@ -169,7 +170,7 @@
   <section class="filter-toolbar" id="filter-toolbar" aria-label="Terminfilter">
     <div class="filter-row" id="filter-row">
       <!-- Tag Selector -->
-  <div class="field tagbox">
+      <div class="field tagbox">
         <!-- <label for="tag-input">Tags</label> -->
         <input id="tag-input" class="tag-input" type="text" placeholder="Tag suchen & Enter zum Hinzufügen" autocomplete="off" aria-describedby="tag-help">
         <div id="tag-suggest" class="suggest" role="listbox" aria-label="Tag-Vorschläge"></div>
@@ -177,13 +178,13 @@
       </div>
 
       <!-- Text Search -->
-  <div class="field">
+      <div class="field">
         <!-- <label for="search-input">Suche</label> -->
         <input id="search-input" type="text" placeholder="Titel & Tags durchsuchen …">
       </div>
 
       <!-- Month Dropdown -->
-  <div class="field">
+      <div class="field">
         <!-- <label for="month-select">Monat</label> -->
         <select id="month-select" aria-label="Monat wählen">
           <option value="">Alle Monate</option>
@@ -200,17 +201,17 @@
     </div>
   </section>
 
-  <main>
+  <!-- <main>
     <div id="result-info" class="result-info">–</div>
     <div id="month-grid" class="month-grid hidden"></div>
-  </main>
+  </main> -->
 
   <!-- Modal: Edit/Create -->
   <dialog id="event-modal" class="modal">
     <form method="dialog" id="event-form" class="event-form">
       <header class="modal-header">
         <h2 id="modal-title">Kalendereintrag</h2>
-  <button id="close-modal" class="btn btn-ghost" type="button" value="cancel" title="Schließen">✕</button>
+        <button id="close-modal" class="btn btn-ghost" type="button" value="cancel" title="Schließen">✕</button>
       </header>
       <div class="form-grid">
         <div class="col">

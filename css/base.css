@@ -291,6 +291,8 @@ a{color:var(--color-primary);text-decoration:none}
   border: 1px solid var(--chip-border);
   padding: 6px 15px;
   border-radius: var(--radius-md);
+  min-width: 140px;
+  min-height: 34px;
 }
 
 /* Sidebar Styles */

@@ -4,7 +4,9 @@ export const Config = {
     'wss://relay-rpi.edufeed.org'
   ],
   // Optional: auf bestimmte Autoren einschränken (npub, hex oder leer lassen)
-  allowedAuthors: ["6f50351f348f571316427ed65397e867b9c4f56f0911be9350c24bf97b36c393","67aea7eb0d97183c98676f320b5cdb48f7efbb73b3d7ff8c2c1b40cfb6866586","54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913", "456912bd34aa93070adec252bb5ebff4ee6d4120e1b848ae6b396b841fb5016a" ],
+  allowedAuthors: [
+    "54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913"
+  ],
   // Subscriptions-Speicher: Standard lokal für nicht angemeldete Nutzer.
   // Bei Anmeldung bevorzugt NIP-51 (parameterized replaceable list) mit eigenem d-Namen.
   subscriptionsList: {
