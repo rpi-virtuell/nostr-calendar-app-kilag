@@ -110,13 +110,10 @@ class SubscriptionsManager {
     this.tooltipOwner = null;
     this._tooltipCleanup = null;
 
-    // NIP-51 (People Lists, kind 30000) & Contacts (kind 3) Sync-Status
+    // NIP-51 (People Lists, kind 30000) Sync-Status
     this._listCreatedAt = 0;
     this._listSub = null;
     this._listPollTimer = null;
-    this._contactsCreatedAt = 0;
-    this._contactsSub = null;
-    this._contactsPollTimer = null;
     this._saveTimer = null;
     this._watching = false;
 
@@ -237,7 +234,7 @@ class SubscriptionsManager {
   }
 
   async handleAuthChange() {
-    // Wenn eingeloggt → Kontakte laden + beobachten; sonst: Beobachtung stoppen
+    // Wenn eingeloggt → NIP-51 Listen laden + beobachten; sonst: Beobachtung stoppen
     try {
       if (this.canUseContacts()) {
         // gewünschtes d aus URL/Storage/Config übernehmen
@@ -247,23 +244,16 @@ class SubscriptionsManager {
         if (desired) this._activeListD = desired;
         // Owner bestimmen (für geteilte Listen)
         let owner = this._listOwnerHex || client.pubkey;
-        // 1) Präferiere NIP-51 People List (kind 30000, d)
-        const ok51 = await this.loadFromNip51(owner).catch(() => false);
-        if (ok51) {
+        // NIP-51 People List (kind 30000, d) laden
+        const ok = await this.loadFromNip51(owner).catch(() => false);
+        if (ok) {
           this.startWatchingNip51(owner);
-        } else {
-          // 2) Fallback auf Contacts (kind 3)
-          // Nur sinnvoll, wenn owner der eigene Key ist
-          if (!this._listOwnerHex || this._listOwnerHex === client.pubkey) {
-            await this.loadFromContacts(client.pubkey);
-            this.startWatchingContacts(client.pubkey);
-          }
         }
         // verfügbare Listen für UI ermitteln (nur für eigenen Key sinnvoll)
         const who = (!this._listOwnerHex || this._listOwnerHex === client.pubkey) ? client.pubkey : client.pubkey;
         this.listAllNip51Lists(who).catch(() => {});
       } else {
-        this.stopWatchingAll();
+        this.stopWatchingNip51();
       }
     } catch (e) {
       console.warn('[Subscriptions] handleAuthChange failed:', e);
@@ -460,122 +450,18 @@ class SubscriptionsManager {
     } catch (e) { console.warn('[Subscriptions] saveToNip51 failed:', e); return false; }
   }
 
-  async loadFromContacts(pubkeyHex) {
-    try {
-      if (!pubkeyHex || !/^[0-9a-f]{64}$/i.test(pubkeyHex)) return false;
-      await client.initPool();
-      // Schnellster Relay für first-paint
-      const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
-      const filter = { kinds: [3], authors: [pubkeyHex], limit: 1 };
-      let events = [];
-      try {
-        events = await client.listByWebSocketOne(relay, filter, 2500);
-      } catch {
-        try { events = await client.listFromPool(Config.relays, filter, 3500); } catch { events = []; }
-      }
-      if (!events || !events.length) {
-        this._contactsCreatedAt = 0;
-        // Früher: automatische Veröffentlichung der lokalen Liste.
-        // Das führte bei NIP-46/Bunker zu ungewollten Hintergrund-Signaturversuchen.
-        // Jetzt kein Auto-Publish mehr – nur noch auf explizite Nutzeraktionen (add/remove/save-as-own).
-        if (this.items && this.items.length) {
-          console.info('[Subscriptions] Kontakte leer auf Relays – Auto-Publish unterdrückt (nur bei Nutzeraktion).');
-        }
-        return false;
-      }
-      // Neueste nehmen
-      const ev = events.sort((a,b) => (b.created_at||0) - (a.created_at||0))[0];
-      this._contactsCreatedAt = ev.created_at || 0;
 
-      // p-Tags parsen
-      const ps = (ev.tags || []).filter(t => t && t[0] === 'p');
-      const list = ps.map(t => {
-        const hex = (t[1] || '').toLowerCase();
-        const pet = t[3] || null;
-        const key = hexToNpub(hex) || hex;
-        return { key, hex, name: pet };
-      }).filter(x => x.hex);
 
-      // Falls leer: lokale Seeds nutzen
-      const final = list.length ? list : this.seedFromConfigIfEmpty();
-      await this.resolveNames(final);
-      this.items = this.dedupe(final);
-      this.saveToStorage(); // lokal spiegeln
-      this.render();
-      this.emitChanged();
-      return true;
-    } catch (e) {
-      console.warn('[Subscriptions] loadFromContacts failed:', e);
-      return false;
-    }
-  }
 
-  startWatchingContacts(pubkeyHex) {
-    try { this.stopWatchingContacts(); } catch {}
-    if (!this.canUseContacts() || !pubkeyHex) return;
-    this._watching = true;
 
-    // subscribeMany, falls verfügbar, sonst Polling als Fallback
-    const setupSub = () => {
-      try {
-        if (!client.pool || typeof client.pool.subscribeMany !== 'function') return false;
-        const since = (this._contactsCreatedAt || 0) + 1;
-        const f = [{ kinds: [3], authors: [pubkeyHex], since }];
-        const sub = client.pool.subscribeMany(Config.relays, f, {
-          onevent: async (ev) => {
-            if (!ev) return;
-            if ((ev.created_at || 0) <= (this._contactsCreatedAt || 0)) return;
-            this._contactsCreatedAt = ev.created_at || this._contactsCreatedAt;
-            try {
-              const ps = (ev.tags || []).filter(t => t && t[0] === 'p');
-              const list = ps.map(t => ({
-                hex: (t[1] || '').toLowerCase(),
-                key: hexToNpub((t[1] || '').toLowerCase()) || (t[1] || ''),
-                name: t[3] || null
-              })).filter(x => x.hex);
-              await this.resolveNames(list);
-              this.items = this.dedupe(list);
-              this.saveToStorage();
-              this.render();
-              this.emitChanged();
-            } catch (e) { console.warn('[Subscriptions] contacts update parse failed', e); }
-          },
-          oneose: () => { /* keep open */ }
-        });
-        this._contactsSub = sub;
-        return true;
-      } catch (e) {
-        console.warn('[Subscriptions] subscribeMany not available or failed:', e);
-        return false;
-      }
-    };
 
-    const ok = setupSub();
-    if (!ok) {
-      // Fallback: alle 30s poll
-      const poll = async () => {
-        if (!this._watching) return;
-        try { await this.loadFromContacts(pubkeyHex); } catch {}
-        this._contactsPollTimer = setTimeout(poll, 30000);
-      };
-      poll();
-    }
-  }
-
-  stopWatchingContacts() {
-    this._watching = false;
-    try { if (this._contactsSub && typeof this._contactsSub.close === 'function') this._contactsSub.close(); } catch {}
-    this._contactsSub = null;
-    if (this._contactsPollTimer) { try { clearTimeout(this._contactsPollTimer); } catch {}; this._contactsPollTimer = null; }
-  }
 
   stopWatchingAll() {
     this._watching = false;
     this.stopWatchingNip51();
-    this.stopWatchingContacts();
   }
 
-  _debouncedSaveAll(delay = 400) {
+  _debouncedSaveNip51(delay = 400) {
     if (!this.canUseContacts()) return;
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(async () => {
@@ -583,41 +469,11 @@ class SubscriptionsManager {
       const isOwn = (!this._listOwnerHex || this._listOwnerHex === client.pubkey);
       if (isOwn) {
         try { await this.saveToNip51(); } catch (e) { console.warn('saveToNip51 debounced failed', e); }
-        try { await this.saveToContacts(); } catch (e) { console.warn('saveToContacts debounced failed', e); }
       }
     }, delay);
   }
 
-  async saveToContacts() {
-    if (!this.canUseContacts()) return false;
-    // Bei geteilten Listen (owner != self) nicht speichern
-    if (this._listOwnerHex && this._listOwnerHex !== client.pubkey) return false;
-    try {
-      await client.initPool();
-      const now = Math.floor(Date.now() / 1000);
-      // p-Tags bauen: ["p", hex, relayHint?, petname?]
-      const tags = [];
-      const seen = new Set();
-      for (const it of this.items) {
-        const hex = toHexOrNull(it.hex || it.key);
-        if (!hex || seen.has(hex)) continue;
-        seen.add(hex);
-        const pet = it.name ? String(it.name).slice(0, 100) : undefined;
-        const arr = pet ? ['p', hex, '', pet] : ['p', hex];
-        tags.push(arr);
-      }
-  // Optional: App-Tag für Policy/Client-Erkennung
-  if (Array.isArray(Config.appTag)) tags.push(Config.appTag);
-  const evt = { kind: 3, content: '', tags, created_at: now };
-  const signed = await client.signEventWithTimeout(evt, 10000);
-      console.debug('[Subscriptions] saveToContacts publish', { relays: Config.relays, evt });
-      await client.publishToRelays(Config.relays, signed, 1600);
-      return true;
-    } catch (e) {
-      console.warn('[Subscriptions] saveToContacts failed:', e);
-      return false;
-    }
-  }
+
 
   dedupe(arr) {
     const seen = new Set();
@@ -645,7 +501,7 @@ class SubscriptionsManager {
     this.saveToStorage();
     this.render();
     this.emitChanged();
-    this._debouncedSaveAll();
+    this._debouncedSaveNip51();
     if (this.inputEl) this.inputEl.value = '';
   }
 
@@ -653,7 +509,66 @@ class SubscriptionsManager {
     const h = toHexOrNull(hexOrKey) || (hexOrKey || '').toLowerCase();
     const before = this.items.length;
     this.items = this.items.filter(i => (i.hex || i.key.toLowerCase()) !== h);
-    if (this.items.length !== before) { this.saveToStorage(); this.render(); this.emitChanged(); this._debouncedSaveAll(); }
+    if (this.items.length !== before) { this.saveToStorage(); this.render(); this.emitChanged(); this._debouncedSaveNip51(); }
+  }
+
+  /**
+   * Setzt alle Listen zurück - löscht alle Listen aus dem LocalStorage
+   */
+  reset() {
+    try {
+      // Stoppe alle Watching-Aktivitäten
+      this.stopWatchingAll();
+      
+      // Lösche alle relevanten localStorage-Einträge
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (
+          key === STORAGE_KEY ||
+          key === 'nostr_calendar_list_d' ||
+          key === 'nostr_calendar_list_owner' ||
+          key.startsWith('author_name:') ||
+          key.startsWith('author_meta:')
+        )) {
+          keysToRemove.push(key);
+        }
+      }
+      
+      keysToRemove.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {
+          console.warn(`Fehler beim Löschen von ${key}:`, e);
+        }
+      });
+      
+      // Interne Variablen zurücksetzen
+      this.items = [];
+      this._activeListD = null;
+      this._listName = null;
+      this._listDescription = null;
+      this._listsCache = [];
+      this._pendingURLListD = null;
+      this._listOwnerHex = null;
+      this._listCreatedAt = 0;
+      
+      // Timer löschen
+      if (this._saveTimer) {
+        clearTimeout(this._saveTimer);
+        this._saveTimer = null;
+      }
+      
+      // UI aktualisieren
+      this.render();
+      this.emitChanged();
+      
+      console.info('[Subscriptions] Reset durchgeführt - alle Listen gelöscht');
+      return true;
+    } catch (e) {
+      console.error('[Subscriptions] Reset fehlgeschlagen:', e);
+      return false;
+    }
   }
 
   getAuthors() { return this.items.map(i => i.key); }
