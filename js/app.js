@@ -469,23 +469,69 @@ async function refresh(){
      console.log('[App] Lade Events von Nostr Relays');
      // Build authors list: subscriptions + current logged-in user (if any)
      let authors = [];
-     try {
-       authors = Subscriptions.getAuthors();
-     } catch {}
+     let userPk = null;
+     let hasSubscriptions = false;
+     
+     // 1. Check if user is logged in and get their public key
      try {
        const activePlugin = await authManager.getActivePlugin();
-       let userPk = null;
        if (activePlugin && await activePlugin.isLoggedIn()) {
          userPk = await activePlugin.getPublicKey();
        } else if (client && client.signer && typeof client.signer.getPublicKey === 'function') {
          userPk = await client.signer.getPublicKey();
        }
-       if (userPk) authors = Array.from(new Set([...(authors||[]), userPk]));
+       console.log('[App] Aktuell angemeldeter User:', userPk);
+     } catch (e) {
+       console.warn('[App] Fehler beim Ermitteln des angemeldeten Users:', e);
+     }
+     
+     // 2. Get authors from subscriptions (if any)
+     try {
+       const subsAuthors = Subscriptions.getAuthors();
+       if (subsAuthors && subsAuthors.length > 0) {
+         authors = [...subsAuthors];
+         hasSubscriptions = true;
+         console.log('[App] Subscription Autoren:', authors);
+       }
+     } catch (e) {
+       console.warn('[App] Fehler beim Laden der Subscription-Autoren:', e);
+     }
+     
+     // 3. Always add logged-in user to authors list (if available)
+     if (userPk) {
+       authors = Array.from(new Set([...(authors||[]), userPk]));
+       console.log('[App] User zur Autorenliste hinzugefügt:', userPk);
+     }
+     
+     // 4. Check for URL parameter ?d= (subscription list ID)
+     let hasSubscriptionListParam = false;
+     try {
+       const urlParams = new URLSearchParams(location.search);
+       const listD = urlParams.get('list') || urlParams.get('d');
+       if (listD) {
+         hasSubscriptionListParam = true;
+         console.log('[App] Subscription Liste aus URL Parameter:', listD);
+       }
      } catch {}
+     
+     // 5. Fallback to Config.allowedAuthors only if:
+     //    - No user is logged in AND
+     //    - No subscriptions are available AND 
+     //    - No subscription list parameter in URL
+     if (!userPk && !hasSubscriptions && !hasSubscriptionListParam) {
+       if (!authors || authors.length === 0) {
+         authors = (Config.allowedAuthors || []).slice();
+         console.log('[App] Verwende Config.allowedAuthors als Fallback:', authors);
+       }
+     }
+     
+     // 6. Final check - ensure we have at least some authors
      if (!authors || authors.length === 0) {
        authors = (Config.allowedAuthors || []).slice();
+       console.log('[App] Finale Fallback-Autoren:', authors);
      }
-     console.log('[App] fetchEvents Autoren:', authors);
+     
+     console.log('[App] fetchEvents finale Autorenliste:', authors);
      events = await client.fetchEvents({ sinceDays: 1000, authors });
      console.log('[App] Events geladen:', events.length);
 
