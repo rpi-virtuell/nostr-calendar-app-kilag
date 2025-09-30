@@ -191,13 +191,13 @@ export class NostrAuthPlugin extends AuthPluginInterface {
     if (this.isLoggedIn()) {
       // Show user info
       if (whoami && this.client.pubkey) {
-        const shortPubkey = this.client.pubkey.slice(0, 16) + '...';
+        const shortPubkey = this.client.pubkey.slice(0, 32) + '...';
         const methodLabel = this.getMethodLabel(this.currentMethod);
         whoami.innerHTML = `
-          <div style="text-align: left;">
+          <div>
             <div><strong>🔑 Nostr Identity (${methodLabel})</strong></div>
-            <div style="font-size: 0.85em; color: #666;">${this.getDisplayNameForPubkey(this.client.pubkey)}</div>
-            <div style="font-size: 0.75em; color: #999;">${shortPubkey}</div>
+            <div>${this.getDisplayNameForPubkey(this.client.pubkey)}</div>
+            <div>${shortPubkey}</div>
           </div>
         `;
       }
@@ -298,8 +298,84 @@ export class NostrAuthPlugin extends AuthPluginInterface {
 
   getDisplayNameForPubkey(pubkey) {
     if (!pubkey) return 'Unknown';
-    // Could integrate with NIP-05 lookup here
+    
+    // Check cache first for performance
+    try {
+      const cached = localStorage.getItem(`author_name:${pubkey}`);
+      if (cached && cached !== 'null') {
+        return cached;
+      }
+    } catch (e) {
+      // ignore cache errors
+    }
+    
+    // convert to bech32 npub for better readability  
+    const npub = this.hexToNpub(pubkey);
+    if (npub) return npub.slice(0, 32) + '...';
     return `nostr:${pubkey.slice(0, 8)}...`;
+  }
+
+  // Helper function to convert hex to npub
+  hexToNpub(hex) {
+    if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) return null;
+    try {
+      const bytes = hex.match(/.{1,2}/g).map(h => parseInt(h, 16));
+      const words = this.toWords(bytes);
+      return this.bech32Encode('npub', words);
+    } catch {
+      return null;
+    }
+  }
+
+  // Minimal bech32 helpers
+  toWords(bytes) {
+    let acc = 0, bits = 0;
+    const words = [];
+    for (let i = 0; i < bytes.length; i++) {
+      acc = (acc << 8) | bytes[i];
+      bits += 8;
+      while (bits >= 5) {
+        bits -= 5;
+        words.push((acc >> bits) & 31);
+      }
+    }
+    if (bits > 0) words.push((acc << (5 - bits)) & 31);
+    return words;
+  }
+
+  bech32Encode(hrp, data) {
+    const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    const combined = data.concat(this.createChecksum(hrp, data));
+    let out = hrp + '1';
+    for (let i = 0; i < combined.length; i++) out += CHARSET.charAt(combined[i]);
+    return out;
+  }
+
+  createChecksum(hrp, data) {
+    const values = this.hrpExpand(hrp).concat(data).concat([0, 0, 0, 0, 0, 0]);
+    const polymod = this.polymod(values) ^ 1;
+    const res = [];
+    for (let p = 0; p < 6; ++p) res.push((polymod >> (5 * (5 - p))) & 31);
+    return res;
+  }
+
+  hrpExpand(hrp) {
+    const out = [];
+    for (let i = 0; i < hrp.length; ++i) out.push(hrp.charCodeAt(i) >> 5);
+    out.push(0);
+    for (let i = 0; i < hrp.length; ++i) out.push(hrp.charCodeAt(i) & 31);
+    return out;
+  }
+
+  polymod(values) {
+    const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    let chk = 1;
+    for (let p = 0; p < values.length; ++p) {
+      const top = chk >> 25;
+      chk = ((chk & 0x1ffffff) << 5) ^ values[p];
+      for (let i = 0; i < 5; ++i) if ((top >> i) & 1) chk ^= G[i];
+    }
+    return chk;
   }
 
   async destroy() {

@@ -294,6 +294,12 @@ a{color:var(--color-primary);text-decoration:none}
   min-width: 140px;
   min-height: 34px;
 }
+#btn-logout{
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 5px 12px;
+  font-size: 0.9rem
+}
 
 /* Sidebar Styles */
 .sidebar{
@@ -509,7 +515,7 @@ a{color:var(--color-primary);text-decoration:none}
 .ev .h{opacity:.8}
 
 .p-16{padding:16px}
-.muted{color:var(--muted)}
+.muted{color:var(--muted); font-size:13px}
 .table-wrap{overflow:auto; max-height:60vh; border:1px solid var(--border); border-radius:12px}
 .table{width:100%; border-collapse:collapse; font-size:14px}
 .table th,.table td{border-bottom:1px solid var(--border); padding:8px 10px; text-align:left}
