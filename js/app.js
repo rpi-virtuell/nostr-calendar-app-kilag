@@ -332,53 +332,71 @@ async function openModalForEdit(evt){
   els.modal.showModal();
 }
 
-// Upload stub (NIP‑96 if configured)
+// Upload with Blossom integration
 function setupUpload() {
-  const uploadBtn = document.getElementById('btn-upload');
-  if (uploadBtn) on(uploadBtn, 'click', async ()=>{
-    const fileEl = document.getElementById('f-image-file');
-    const file = fileEl?.files?.[0];
-    if(!file){ alert('Bitte zuerst eine Bilddatei wählen.'); return; }
-    try{
-      const up = await uploadToBlossom(file);
-      document.getElementById('f-image').value = up.url;
-      return;
-    }catch(e){ console.warn('Blossom upload failed, trying NIP-96', e); }
-    try{
-      // Try to get signer from active auth plugin
-      let signer = null;
-      const activePlugin = await authManager.getActivePlugin();
-      if (activePlugin && activePlugin.getSigner) {
-        signer = await activePlugin.getSigner();
+  const btnSelectFromBlossom = document.getElementById('btn-select-from-blossom');
+  const btnUploadImage = document.getElementById('btn-upload-image');
+  const fileInput = document.getElementById('f-image-file');
+  const imageUrlInput = document.getElementById('f-image');
+  
+  // Button: Open Blossom Modal to select existing image
+  if (btnSelectFromBlossom) {
+    btnSelectFromBlossom.addEventListener('click', async () => {
+      // Open Blossom Modal
+      els.blossomModal.showModal();
+      await refreshBlossom(els.blossomInfo, blossomState);
+      renderBlossom(
+        els.blossomTable, 
+        els.blossomPageInfo, 
+        els.blossomInfo, 
+        els.previewModal, 
+        els.previewBody, 
+        els.previewClose, 
+        blossomState
+      );
+      
+      showNotification('Wählen Sie ein Bild aus und klicken Sie auf "Verwenden"', 'info');
+    });
+  }
+  
+  // Button: Upload new image via Blossom
+  if (btnUploadImage) {
+    btnUploadImage.addEventListener('click', () => {
+      fileInput.click();
+    });
+  }
+  
+  // File input change handler
+  if (fileInput) {
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        showNotification('Bitte wählen Sie eine Bilddatei aus', 'error');
+        fileInput.value = '';
+        return;
       }
-      if (!signer) {
-        // Fallback to client login if no plugin signer available
-        signer = client.signer || await client.login();
+      
+      // Show progress
+      showNotification('Bild wird hochgeladen...', 'info');
+      
+      try {
+        const { url } = await uploadToBlossom(file);
+        imageUrlInput.value = url;
+        showNotification('✅ Bild erfolgreich hochgeladen!', 'success');
+        
+        console.log('Image uploaded to Blossom:', url);
+      } catch (error) {
+        console.error('Upload failed:', error);
+        showNotification(`❌ Upload fehlgeschlagen: ${error.message}`, 'error');
+      } finally {
+        // Reset file input
+        fileInput.value = '';
       }
-      const up2 = await uploadWithNip96(file, signer);
-      document.getElementById('f-image').value = up2.url;
-      return;
-    }catch(e){ console.warn('NIP-96 upload failed, falling back to DataURL', e); }
-    if(!Config.mediaUploadEndpoint){
-      // Fallback: inline DataURL (nur Demo)
-      const reader = new FileReader();
-      reader.onload = ()=>{ document.getElementById('f-image').value = reader.result; }
-      reader.readAsDataURL(file);
-      return;
-    }
-    try{
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(Config.mediaUploadEndpoint, { method:'POST', body: fd });
-      const json = await res.json();
-      const url = json.url || json.data?.url || json.location;
-      if(url){ document.getElementById('f-image').value = url; }
-      else alert('Upload ok, aber keine URL gefunden. Prüfen Sie den Endpoint.');
-    }catch(err){
-      console.error(err);
-      alert('Upload fehlgeschlagen.');
-    }
-  });
+    });
+  }
 }
 
 // LIST + FILTER
