@@ -22,8 +22,12 @@ export const Config = {
   defaultTheme: 'light',
   // Optionaler NIP-96 Upload-Endpunkt (z. B. https://media.server/api/upload )
   mediaUploadEndpoint: '',
-  // Blossom host (für Datei-Uploads & Verwaltung)
-  blossom: { endpoint: 'https://blossom.band' },
+  // Blossom/NIP-96 Media Servers (für Datei-Uploads & Verwaltung)
+  mediaServers: [
+    { url: 'https://files.sovbit.host', protocol: 'nip96' }
+    // Weitere Server können hier hinzugefügt werden
+    // { url: 'https://blossom.band', protocol: 'blossom' } // hat derzeit Server-Bug
+  ],
   // NIP-46 (Bunker) – optional vordefinierte Connect-URI (kann per UI gesetzt werden)
   nip46: { connectURI: '' },
   // App metadata for NIP-78 client tags

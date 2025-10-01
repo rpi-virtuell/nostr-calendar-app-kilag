@@ -482,12 +482,12 @@ export class NostrClient {
                 if (!w) {
                   navigator.clipboard?.writeText(url).catch(()=>{});
                   console.warn('[Bunker] Popup blocked, URL copied to clipboard');
-                  try { alert('Bitte diese Autorisierungs-URL öffnen:\n' + url); } catch {}
+                  // try { alert('Bitte diese Autorisierungs-URL öffnen:\n' + url); } catch {}
                 }
               } catch (e) {
                 navigator.clipboard?.writeText(url).catch(()=>{});
                 console.warn('[Bunker] Failed to open auth URL:', e);
-                alert('Bitte diese Autorisierungs-URL öffnen:\n' + url);
+                // alert('Bitte diese Autorisierungs-URL öffnen:\n' + url);
               }
             } else {
               try { localStorage.setItem('nip46_last_auth_url', url); } catch {}
@@ -1001,8 +1001,13 @@ export class NostrClient {
     try {
       const pkLocal = this.pubkey || (typeof signer.getPublicKey === 'function' ? await signer.getPublicKey() : null);
       if (signer?.type === 'nip46') {
-        // Einige NIP-46-Remote-Signer erwarten Events OHNE pubkey und setzen ihn selbst
-        if ('pubkey' in prepared) try { delete prepared.pubkey; } catch {}
+        // Für NIP-46: pubkey sowohl im Event als auch temporär speichern
+        // Wir probieren später mit und ohne pubkey
+        const pk = pkLocal || this.pubkey;
+        if (pk) {
+          prepared.pubkey = pk;
+          prepared._nip46_pubkey = pk;
+        }
       } else {
         if (pkLocal && !prepared.pubkey) prepared.pubkey = pkLocal;
         if (prepared.pubkey && this.pubkey && prepared.pubkey !== this.pubkey) {
@@ -1016,7 +1021,10 @@ export class NostrClient {
 
   // NIP-46: wir probieren zwei Varianten schnell hintereinander (mit/ohne pubkey)
   const isNip46 = signer?.type === 'nip46';
-  const effectiveTimeout = isNip46 ? Math.max(5000, Math.min(timeoutMs, 10000)) : timeoutMs;
+  // Für kind 24242 (Blossom Auth) und 24133 (File Metadata) SEHR lange warten
+  // NIP-46 Bunker kann bis zu 30+ Sekunden brauchen für erste Signatur
+  const maxTimeout = (prepared?.kind === 24242 || prepared?.kind === 24133) ? 45000 : 15000;
+  const effectiveTimeout = isNip46 ? Math.max(8000, Math.min(timeoutMs, maxTimeout)) : timeoutMs;
   try { console.info('[signEventWithTimeout] start kind=', prepared?.kind, 'timeoutMs=', effectiveTimeout, 'hasPubkey=', !!prepared?.pubkey, 'signerType=', signer?.type); } catch {}
 
     const attemptSign = async (toMs, evObj) => {
@@ -1030,15 +1038,21 @@ export class NostrClient {
     try {
       let res;
       try {
-        // 1) erster Versuch: bei NIP‑46 mit pubkey (neue Bunker erwarten oft gesetzten pubkey)
-        const ev1 = isNip46 ? { ...prepared, pubkey: (this.pubkey || prepared.pubkey) } : prepared;
-        res = await attemptSign(effectiveTimeout, ev1);
+        // 1) erster Versuch: bei NIP‑46 MIT pubkey (neue Bunker erwarten oft gesetzten pubkey)
+        if (isNip46) {
+          const pubkeyToUse = prepared._nip46_pubkey || this.pubkey || prepared.pubkey;
+          const { _nip46_pubkey, ...cleanEvent } = prepared;
+          const ev1 = { ...cleanEvent, pubkey: pubkeyToUse };
+          res = await attemptSign(effectiveTimeout, ev1);
+        } else {
+          res = await attemptSign(effectiveTimeout, prepared);
+        }
       } catch (e) {
         if (signer?.type === 'nip46') console.warn('[signEventWithTimeout] nip46 signEvent threw before timeout:', e && (e.message || e));
-        // 2) zweiter Versuch (nur NIP‑46): ohne pubkey
+        // 2) zweiter Versuch (nur NIP‑46): OHNE pubkey
         if (isNip46) {
           try {
-            const { pubkey: _pk, ...rest } = prepared;
+            const { pubkey: _pk, _nip46_pubkey, ...rest } = prepared;
             const ev2 = { ...rest };
             console.debug('[signEventWithTimeout] nip46 retry with event without pubkey');
             res = await attemptSign(effectiveTimeout, ev2);
@@ -1056,25 +1070,25 @@ export class NostrClient {
       const msg = err && (err.message || String(err));
       if (signer?.type === 'nip46') {
         try {
-          console.warn('[signEventWithTimeout] first attempt failed on nip46:', msg, '→ retrying…');
-          // Hinweis/Prompt: Nutzer kann jetzt die Bunker-Auth-URL öffnen, um Signing zu erlauben
-          try {
-            const hint = localStorage.getItem('nip46_last_auth_url');
-            if (hint && typeof window !== 'undefined') {
-              // Nur einmal pro Retry höflich fragen
-              try {
-                const open = window.confirm('Die Signatur muss ggf. im Bunker bestätigt werden. Jetzt Bunker-Auth öffnen?');
-                if (open) {
-                  const w = window.open(hint, '_blank', 'noopener,noreferrer');
-                  if (!w) {
-                    navigator.clipboard?.writeText(hint).catch(()=>{});
-                    alert('Popup blockiert. Die Bunker-URL wurde in die Zwischenablage kopiert. Bitte manuell öffnen.');
-                  }
-                }
-              } catch {}
-            }
-          } catch {}
-          // poke signer to keep connection alive
+          // console.warn('[signEventWithTimeout] first attempt failed on nip46:', msg, '→ retrying…');
+          // // Hinweis/Prompt: Nutzer kann jetzt die Bunker-Auth-URL öffnen, um Signing zu erlauben
+          // try {
+          //   const hint = localStorage.getItem('nip46_last_auth_url');
+          //   if (hint && typeof window !== 'undefined') {
+          //     // Nur einmal pro Retry höflich fragen
+          //     try {
+          //       const open = window.confirm('Die Signatur muss ggf. im Bunker bestätigt werden. Jetzt Bunker-Auth öffnen?');
+          //       if (open) {
+          //         const w = window.open(hint, '_blank', 'noopener,noreferrer');
+          //         if (!w) {
+          //           navigator.clipboard?.writeText(hint).catch(()=>{});
+          //           alert('Popup blockiert. Die Bunker-URL wurde in die Zwischenablage kopiert. Bitte manuell öffnen.');
+          //         }
+          //       }
+          //     } catch {}
+          //   }
+          // } catch {}
+          // // poke signer to keep connection alive
           try {
             const resPk = await Promise.race([
               signer.getPublicKey?.(),
@@ -1089,15 +1103,19 @@ export class NostrClient {
               this._bunker.connect().catch(e => console.warn('bunker.connect() during retry failed:', e));
             }
           } catch {}
-          const longTimeout = Math.max(effectiveTimeout, 20000);
-          // 3) letzter Versuch: erst mit pubkey, dann ohne
-          const ev3a = { ...prepared, pubkey: (this.pubkey || prepared.pubkey) };
+          // 3) letzter Versuch mit SEHR langem Timeout: erst mit pubkey, dann ohne
+          const longTimeout = Math.max(effectiveTimeout * 2, 45000); // Mindestens 45 Sekunden
+          const pubkeyToUse = prepared._nip46_pubkey || this.pubkey || prepared.pubkey;
+          const { _nip46_pubkey: _npk, ...cleanPrepared } = prepared;
+          const ev3a = { ...cleanPrepared, pubkey: pubkeyToUse };
+          console.warn('[signEventWithTimeout] Final retry with long timeout:', longTimeout, 'ms. Please approve in Bunker app!');
           try {
             const res2 = await attemptSign(longTimeout, ev3a);
             try { console.info('[signEventWithTimeout] retry done kind=', prepared?.kind, '(with pubkey)'); } catch {}
             return res2;
           } catch (_) {
-            const { pubkey: _pk3, ...rest3 } = prepared; const ev3b = { ...rest3 };
+            const { pubkey: _pk3, ...rest3 } = cleanPrepared; 
+            const ev3b = { ...rest3 };
             const res2b = await attemptSign(longTimeout, ev3b);
             try { console.info('[signEventWithTimeout] retry done kind=', prepared?.kind, '(without pubkey)'); } catch {}
             return res2b;
@@ -1116,8 +1134,17 @@ export class NostrClient {
               new Promise(resolve => setTimeout(() => resolve({ ok:false, kind:1, error:'probe timeout'}), 3000))
             ]);
             console.info('[signEventWithTimeout] probe kind=1 →', probe);
-            if (probe && probe.ok && (prepared?.kind === 30000 || prepared?.kind === 3)) {
-              console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', prepared?.kind, 'nicht. Bitte in der Bunker-UI die Signatur für diese Event-Kinds erlauben (Contacts=3, People List=30000).');
+            if (probe && probe.ok) {
+              const k = prepared?.kind;
+              if (k === 30000 || k === 3) {
+                console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', k, 'nicht. Bitte in der Bunker-UI die Signatur für diese Event-Kinds erlauben (Contacts=3, People List=30000).');
+              } else if (k === 24242 || k === 24133) {
+                console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', k, 'nicht. Bitte in der Bunker-UI die Signatur für diese Event-Kinds erlauben (NIP-98 Auth=24242, NIP-94 File Metadata=24133). Diese Permissions werden für Blossom/NIP-96 Uploads benötigt.');
+              } else if (k === 31923) {
+                console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', k, 'nicht. Bitte in der Bunker-UI die Signatur für kind 31923 (Calendar Events) erlauben.');
+              } else {
+                console.warn('[signEventWithTimeout] Hinweis: Bunker scheint kind 1 zu erlauben, aber', k, 'nicht. Bitte in der Bunker-UI die Signatur für diese Event-Kinds erlauben.');
+              }
             }
           } catch {}
           throw err2;

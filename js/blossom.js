@@ -63,23 +63,42 @@ async function createBlossomAuth(method, url, action = 'upload') {
       content: ''
     };
 
-    const signed = await client.signEventWithTimeout(authEvent, 5000);
+    // NIP-46 (Bunker) kann SEHR lange dauern für kind 24242 - erhöhtes Timeout
+    // Erste Signatur nach Connect kann 30-60 Sekunden dauern!
+    const timeout = client.signer?.type === 'nip46' ? 60000 : 8000;
+    console.debug('[Blossom] Signing auth event (kind 24242) with timeout:', timeout, 'ms, signer type:', client.signer?.type);
+    
+    if (client.signer?.type === 'nip46') {
+      console.warn('[Blossom] NIP-46 Bunker detected. This may take up to 60 seconds. Please approve the signature request in your Bunker app!');
+    }
+    
+    const signed = await client.signEventWithTimeout(authEvent, timeout);
     
     // Create authorization header
     const authHeader = 'Nostr ' + btoa(JSON.stringify(signed));
     return authHeader;
   } catch (error) {
-    console.warn('Failed to create auth header:', error);
-    return null;
+    console.error('[Blossom] Failed to create auth header:', error);
+    
+    // Spezielle Fehlerbehandlung für NIP-46
+    if (client.signer?.type === 'nip46') {
+      const errorMsg = error?.message || String(error);
+      if (errorMsg.includes('timeout')) {
+        throw new Error('NIP-46 Bunker Signatur-Timeout für kind 24242. Bitte stellen Sie sicher, dass:\n1. Sie die Permission für kind 24242 (NIP-98 Auth) im Bunker freigegeben haben\n2. Sie die Signaturanfrage im Bunker bestätigen\n3. Die Bunker-Verbindung aktiv ist');
+      }
+      throw new Error(`NIP-46 Bunker Signatur fehlgeschlagen: ${errorMsg}\n\nBitte prüfen Sie, ob kind 24242 (NIP-98 Auth) im Bunker erlaubt ist.`);
+    }
+    
+    // Generischer Fehler für andere Signer-Typen
+    throw new Error(`Auth-Header konnte nicht erstellt werden: ${error?.message || error}`);
   }
 }
 
 // Upload file to Blossom server
 export async function uploadToBlossom(file) {
-  // List of servers with their protocols
-  const servers = [
+  // Get servers from config
+  const servers = Config.mediaServers || [
     { url: 'https://files.sovbit.host', protocol: 'nip96' }
-    // blossom.band has server bug (500 error)
   ];
 
   let lastError = null;
@@ -244,7 +263,11 @@ async function uploadToNip96(file, endpoint) {
 
 // List uploaded files (from cache, as server /list endpoint requires auth and pubkey)
 export async function listBlossom() {
-  const endpoint = (Config.blossom && Config.blossom.endpoint) || 'https://blossom.band';
+  // Get first server from config (NIP-96 servers support listing)
+  const servers = Config.mediaServers || [{ url: 'https://files.sovbit.host', protocol: 'nip96' }];
+  const primaryServer = servers.find(s => s.protocol === 'nip96') || servers[0];
+  const endpoint = primaryServer ? primaryServer.url : 'https://files.sovbit.host';
+  const protocol = primaryServer ? primaryServer.protocol : 'nip96';
   
   // Try server list endpoint with auth (requires pubkey)
   try {
@@ -253,13 +276,26 @@ export async function listBlossom() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
       
-      const url = endpoint.replace(/\/$/, '') + '/list/' + pubkey;
+      let url, headers;
       
-      // Create auth header
-      const authHeader = await createBlossomAuth('GET', url, 'list');
-      const headers = { 'Accept': 'application/json' };
-      if (authHeader) {
-        headers['Authorization'] = authHeader;
+      if (protocol === 'nip96') {
+        // NIP-96: GET /api/v2/media?page=0&count=100
+        url = endpoint.replace(/\/$/, '') + '/api/v2/media?page=0&count=100';
+        headers = { 'Accept': 'application/json' };
+        
+        const authHeader = await createBlossomAuth('GET', url, 'list');
+        if (authHeader) {
+          headers['Authorization'] = authHeader;
+        }
+      } else {
+        // Blossom: GET /list/<pubkey>
+        url = endpoint.replace(/\/$/, '') + '/list/' + pubkey;
+        headers = { 'Accept': 'application/json' };
+        
+        const authHeader = await createBlossomAuth('GET', url, 'list');
+        if (authHeader) {
+          headers['Authorization'] = authHeader;
+        }
       }
       
       const res = await fetch(url, { 
@@ -270,18 +306,48 @@ export async function listBlossom() {
       clearTimeout(timeoutId);
       
       if (res.ok) {
-        const json = await res.json().catch(() => []);
-        const serverItems = json.map((it) => ({
-          url: it.url || it.href || it.download_url || it.path || '',
-          size: it.size || it.bytes || 0,
-          created: it.created || it.created_at || it.time || Date.now() / 1000,
-          name: it.name || it.filename || (it.url ? it.url.split('/').pop() : 'file'),
-          id: it.id || it.hash || it.sha256 || it.uid || it.url || '',
-          type: it.type || it.mime_type || it.content_type || '',
-          server: endpoint
-        }));
+        const json = await res.json().catch(() => ({}));
+        let serverItems = [];
         
-        console.info(`📋 Loaded ${serverItems.length} files from server`);
+        if (protocol === 'nip96' && json.files) {
+          // NIP-96 response format
+          serverItems = json.files.map((file) => {
+            // Extract URL from tags
+            const urlTag = file.tags?.find(t => t[0] === 'url');
+            const sizeTag = file.tags?.find(t => t[0] === 'size');
+            const xTag = file.tags?.find(t => t[0] === 'x');
+            const oxTag = file.tags?.find(t => t[0] === 'ox');
+            const mTag = file.tags?.find(t => t[0] === 'm');
+            
+            const url = urlTag ? urlTag[1] : '';
+            const size = sizeTag ? parseInt(sizeTag[1]) : 0;
+            const hash = (xTag && xTag[1]) || (oxTag && oxTag[1]) || '';
+            const type = mTag ? mTag[1] : '';
+            
+            return {
+              url,
+              size,
+              created: file.created_at || Date.now() / 1000,
+              name: url ? url.split('/').pop() : 'file',
+              id: hash || url,
+              type,
+              server: endpoint
+            };
+          });
+        } else if (Array.isArray(json)) {
+          // Blossom response format
+          serverItems = json.map((it) => ({
+            url: it.url || it.href || it.download_url || it.path || '',
+            size: it.size || it.bytes || 0,
+            created: it.created || it.created_at || it.time || Date.now() / 1000,
+            name: it.name || it.filename || (it.url ? it.url.split('/').pop() : 'file'),
+            id: it.id || it.hash || it.sha256 || it.uid || it.url || '',
+            type: it.type || it.mime_type || it.content_type || '',
+            server: endpoint
+          }));
+        }
+        
+        console.info(`📋 Loaded ${serverItems.length} files from server (${protocol})`);
         
         // Merge with cached items (prefer server data)
         const cached = getCachedUploads();
@@ -305,7 +371,14 @@ export async function listBlossom() {
 
 // Delete file from Blossom server
 export async function deleteFromBlossom(item) {
-  const endpoint = item.server || (Config.blossom && Config.blossom.endpoint) || 'https://blossom.band';
+  // Use server from item, or fallback to first configured server
+  const servers = Config.mediaServers || [{ url: 'https://files.sovbit.host', protocol: 'nip96' }];
+  const fallbackServer = servers[0];
+  const serverUrl = item.server || (fallbackServer ? fallbackServer.url : 'https://files.sovbit.host');
+  
+  // Determine protocol from server config or item
+  const server = servers.find(s => s.url === serverUrl) || fallbackServer;
+  const protocol = server?.protocol || 'blossom';
   
   // Remove from cache immediately (optimistic update)
   removeCachedUpload(item.url);
@@ -317,17 +390,28 @@ export async function deleteFromBlossom(item) {
     return true;
   }
   
-  // Try DELETE /<sha256> with authentication (BUD-02)
+  // Build delete URL based on protocol
+  let deleteUrl;
+  if (protocol === 'nip96') {
+    // NIP-96: DELETE /api/v2/media/<sha256>
+    deleteUrl = serverUrl.replace(/\/$/, '') + '/api/v2/media/' + sha256;
+  } else {
+    // Blossom: DELETE /<sha256>
+    deleteUrl = serverUrl.replace(/\/$/, '') + '/' + sha256;
+  }
+  
+  console.info(`Deleting file (${protocol}):`, deleteUrl);
+  
+  // Try DELETE with authentication
   try {
-    const url = endpoint.replace(/\/$/, '') + '/' + sha256;
-    const authHeader = await createBlossomAuth('DELETE', url, 'delete');
+    const authHeader = await createBlossomAuth('DELETE', deleteUrl, 'delete');
     
     if (!authHeader) {
       console.warn('No auth available for deletion, removed from cache only');
       return true;
     }
     
-    const res = await fetch(url, { 
+    const res = await fetch(deleteUrl, { 
       method: 'DELETE',
       headers: {
         'Authorization': authHeader
@@ -338,7 +422,8 @@ export async function deleteFromBlossom(item) {
       console.info('✅ File deleted from server');
       return true;
     } else {
-      console.warn('Server delete failed:', res.status, res.statusText);
+      const errorText = await res.text().catch(() => '');
+      console.warn(`Server delete failed (${protocol}):`, res.status, res.statusText, errorText);
     }
   } catch (e) {
     console.warn('DELETE request failed:', e);
@@ -593,6 +678,96 @@ export function getCacheStats() {
     newestDate: cached.length > 0 ? new Date(Math.max(...cached.map(i => (i.created || 0) * 1000))) : null
   };
 }
+
+// Debug-Tool: Teste ob Bunker kind 24242 signieren kann
+export async function testBlossomAuthSigning() {
+  if (!client.signer || !client.pubkey) {
+    console.error('[Blossom Test] Nicht angemeldet!');
+    return { ok: false, error: 'Nicht angemeldet' };
+  }
+
+  const signerType = client.signer?.type || 'unknown';
+  console.info(`[Blossom Test] Teste kind 24242 Signatur mit ${signerType}...`);
+
+  try {
+    const testUrl = 'https://files.sovbit.host/upload';
+    const testEvent = {
+      kind: 24242,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['u', testUrl],
+        ['method', 'PUT'],
+        ['t', 'upload'],
+        ['expiration', String(Math.floor(Date.now() / 1000) + 60)]
+      ],
+      content: ''
+    };
+
+    const timeout = signerType === 'nip46' ? 60000 : 8000;
+    console.warn(`[Blossom Test] Testing with ${timeout}ms timeout. For NIP-46, please approve in Bunker when prompted!`);
+    
+    const signed = await client.signEventWithTimeout(testEvent, timeout);
+
+    if (signed && signed.id && signed.sig) {
+      console.info('[Blossom Test] ✅ kind 24242 Signatur erfolgreich!', { id: signed.id });
+      return { 
+        ok: true, 
+        signerType, 
+        eventId: signed.id,
+        message: `✅ Bunker kann kind 24242 signieren! Event ID: ${signed.id.substring(0, 16)}...`
+      };
+    } else {
+      console.warn('[Blossom Test] ⚠ Signatur zurückgegeben, aber unvollständig:', signed);
+      return { 
+        ok: false, 
+        error: 'Signatur unvollständig',
+        message: '⚠ Signatur unvollständig - bitte prüfen Sie die Bunker-Logs'
+      };
+    }
+  } catch (error) {
+    console.error('[Blossom Test] ❌ kind 24242 Signatur fehlgeschlagen:', error);
+    const errorMsg = error?.message || String(error);
+    
+    let helpText = '';
+    if (signerType === 'nip46') {
+      if (errorMsg.includes('timeout')) {
+        helpText = '\n\n💡 TIMEOUT - Mögliche Ursachen:\n' +
+          '1. ❌ kind 24242 Permission fehlt im Bunker\n' +
+          '2. ❌ Sie haben die Signatur-Anfrage nicht bestätigt\n' +
+          '3. ❌ Bunker-Relay ist nicht erreichbar\n' +
+          '4. ❌ Bunker-App ist nicht geöffnet/aktiv\n\n' +
+          '🔧 Lösung:\n' +
+          '1. Öffnen Sie Ihre Bunker-App (z.B. nsec.app)\n' +
+          '2. Gehen Sie zu den App-Permissions für "nostr-calendar"\n' +
+          '3. Fügen Sie kind 24242 (NIP-98 Auth) hinzu\n' +
+          '4. Speichern und erneut testen\n\n' +
+          '📝 Tipp: Führen Sie aus: window.nip46.testSignKinds(1, 24242)\n' +
+          'um zu sehen welche Kinds funktionieren';
+      } else {
+        helpText = '\n\n💡 Lösung:\n' +
+          '1. Öffnen Sie Ihre Bunker-App (z.B. nsec.app)\n' +
+          '2. Gehen Sie zu den App-Permissions\n' +
+          '3. Fügen Sie kind 24242 (NIP-98 Auth) hinzu\n' +
+          '4. Optional: auch kind 24133 (NIP-94 File Metadata)\n' +
+          '5. Speichern und erneut versuchen';
+      }
+    }
+
+    return { 
+      ok: false, 
+      signerType,
+      error: errorMsg,
+      message: `❌ kind 24242 Signatur fehlgeschlagen: ${errorMsg}${helpText}`
+    };
+  }
+}
+
+// Expose test function globally for console debugging
+if (typeof window !== 'undefined') {
+  window.testBlossomAuth = testBlossomAuthSigning;
+  console.info('[Blossom] Debug-Tool verfügbar: window.testBlossomAuth()');
+}
+
 
 // Debug helpers (available in console)
 if (typeof window !== 'undefined') {
