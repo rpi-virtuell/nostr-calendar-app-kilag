@@ -6,6 +6,27 @@
 /**
  * Modal-Manager für Event-Details
  */
+const renderMarkdownToHtml = (markdown = '') => {
+  if (!markdown) return '';
+  const markedLib = typeof window !== 'undefined' ? window.marked : null;
+  if (!markedLib) {
+    return markdown
+      .replace(/\n{2,}/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+  }
+  try {
+    if (typeof markedLib.parse === 'function') {
+      return markedLib.parse(markdown);
+    }
+    if (typeof markedLib === 'function') {
+      return markedLib(markdown);
+    }
+  } catch (err) {
+    console.warn('[detail] Markdown render fallback:', err);
+  }
+  return markdown;
+};
+
 const DetailModalManager = {
   modal: null,
   currentEvent: null,
@@ -276,7 +297,7 @@ const DetailModalManager = {
     if (contentEl) {
       const content = event.content;
       if (content) {
-        contentEl.innerHTML = content;
+        contentEl.innerHTML = renderMarkdownToHtml(content);
       } else {
         contentEl.textContent = 'Keine detaillierte Beschreibung verfügbar.';
       }
