@@ -85,7 +85,7 @@ export class MonthView{
         a.innerHTML = `<span class="t">${t}</span><span class="h">${h}</span>`;
         a.addEventListener('click', (ev)=>{
           ev.preventDefault();
-          window.dispatchEvent(new CustomEvent('edit-event', { detail: { event: e } }));
+          window.dispatchEvent(new CustomEvent('view-event-detail', { detail: { event: e } }));
         });
         items.appendChild(a);
       }
