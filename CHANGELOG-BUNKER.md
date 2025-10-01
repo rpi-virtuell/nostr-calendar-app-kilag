@@ -1,5 +1,30 @@
 # Changelog - NIP-46 Bunker Upload Fix
 
+## [2.1.0] - 2025-10-01 - ✅ WebP-Duplikate Fix
+
+### 🎉 Fixed: NIP-96 WebP-Duplikate Problem
+
+#### Problem
+- NIP-96 Server erstellen automatisch WebP-Versionen der hochgeladenen Bilder
+- Beide Dateien (Original + WebP) erschienen in der Liste
+- WebP-Dateien mit Hash-Namen konnten nicht gelöscht werden (404 Not Found)
+
+#### Fixed
+- **Upload**: Bevorzugt Original-Datei aus `processing_url`
+- **List**: Filtert Server-generierte WebP-Duplikate automatisch heraus
+- **Delete**: Extrahiert Hash aus URL als Fallback für korrekte Löschung
+
+#### Changed
+- `uploadToNip96()`: Prüft `processing_url` nach Original-Datei
+- `listBlossom()`: Filter für WebP-Dateien mit Hash-Namen (Pattern: `^[a-f0-9]{64}\.webp$`)
+- `deleteFromBlossom()`: Hash-Extraktion aus URL wenn nicht in Metadaten
+- Debug-Logging: `console.debug('[NIP-96] Upload response:')` zur Diagnose
+
+#### Documentation
+- **Neu**: `docs/nip96-webp-duplicates.md` - Vollständige Dokumentation des Problems & Lösung
+
+---
+
 ## [2.0.0] - 2025-10-01 - ✅ PRODUCTION READY
 
 ### 🎉 Major Fix: NIP-46 Bunker Uploads funktionieren!

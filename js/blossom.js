@@ -212,9 +212,22 @@ async function uploadToNip96(file, endpoint) {
   }
 
   const json = await res.json().catch(() => ({}));
+  
+  // Debug: Log server response to understand what we're getting
+  console.debug('[NIP-96] Upload response:', json);
 
   // NIP-96 response format
   let outUrl = null;
+  let originalUrl = null; // Separate URL for original file
+  
+  // Check processing_url for original file (NIP-96 creates multiple versions)
+  if (json.processing_url) {
+    // Extract original file from processing_url (not WebP conversion)
+    const origMatch = json.processing_url.match(/(https?:\/\/[^\s]+?\.(jpg|jpeg|png|gif|svg))/);
+    if (origMatch && origMatch[1]) {
+      originalUrl = origMatch[1];
+    }
+  }
   
   // Check nip94_event tags for URL
   if (json.nip94_event && json.nip94_event.tags) {
@@ -227,6 +240,12 @@ async function uploadToNip96(file, endpoint) {
   // Fallback to direct fields
   if (!outUrl) {
     outUrl = json.url || json.location || json.download_url;
+  }
+
+  // Prefer original URL over converted versions (WebP, etc.)
+  if (originalUrl) {
+    console.info('Using original file URL instead of processed version:', originalUrl);
+    outUrl = originalUrl;
   }
 
   if (!outUrl) {
@@ -311,7 +330,7 @@ export async function listBlossom() {
         
         if (protocol === 'nip96' && json.files) {
           // NIP-96 response format
-          serverItems = json.files.map((file) => {
+          const allFiles = json.files.map((file) => {
             // Extract URL from tags
             const urlTag = file.tags?.find(t => t[0] === 'url');
             const sizeTag = file.tags?.find(t => t[0] === 'size');
@@ -333,6 +352,28 @@ export async function listBlossom() {
               type,
               server: endpoint
             };
+          });
+          
+          // Filter out WebP duplicates created by server
+          // NIP-96 servers often create both original + .webp version
+          // We only want to show originals (files with readable names, not hash-only .webp)
+          const seen = new Set();
+          serverItems = allFiles.filter((file) => {
+            // Skip WebP files that have hash-only filenames (server-generated conversions)
+            const fileName = file.name || '';
+            const isHashWebP = fileName.match(/^[a-f0-9]{64}\.webp$/i);
+            
+            if (isHashWebP) {
+              console.debug('Filtering out server-generated WebP duplicate:', fileName);
+              return false; // Skip this file
+            }
+            
+            // Deduplicate by URL
+            if (seen.has(file.url)) {
+              return false;
+            }
+            seen.add(file.url);
+            return true;
           });
         } else if (Array.isArray(json)) {
           // Blossom response format
@@ -384,9 +425,21 @@ export async function deleteFromBlossom(item) {
   removeCachedUpload(item.url);
   
   // Extract SHA256 hash from item
-  const sha256 = item.id || item.hash || item.sha256;
-  if (!sha256) {
-    console.warn('No hash found for deletion, removed from cache only');
+  let sha256 = item.id || item.hash || item.sha256;
+  
+  // Try to extract hash from URL if not found in metadata
+  if (!sha256 || sha256.startsWith('http')) {
+    // Extract from URL: either filename hash or path hash
+    // Pattern: /abc123...xyz.webp or /media/abc123...xyz or /abc123...xyz
+    const hashMatch = item.url.match(/\/([a-f0-9]{64})(?:\.\w+)?(?:\?|$)/i);
+    if (hashMatch && hashMatch[1]) {
+      sha256 = hashMatch[1];
+      console.debug('Extracted hash from URL:', sha256);
+    }
+  }
+  
+  if (!sha256 || sha256.startsWith('http')) {
+    console.warn('No valid hash found for deletion, removed from cache only. Item:', item);
     return true;
   }
   
