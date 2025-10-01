@@ -1,4 +1,81 @@
-import { mdToHtml, secsToLocalInput, localInputToSecs, uid } from '../utils.js';
+import { secsToLocalInput, localInputToSecs, uid } from '../utils.js';
+
+const QUILL_TOOLBAR = [
+  [{ header: [1, 2, 3, false] }],
+  ['bold', 'italic', 'underline', 'strike'],
+  [{ list: 'ordered' }, { list: 'bullet' }],
+  ['blockquote', 'code-block'],
+  ['link', 'image'],
+  ['clean']
+];
+
+const TURNDOWN_CONFIG = {
+  headingStyle: 'atx',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced',
+  emDelimiter: '*',
+  strongDelimiter: '**',
+  br: ''
+};
+
+let quillEditor = null;
+let turndownService = null;
+const getTextarea = () => document.getElementById('f-content');
+const getEditorContainer = () => document.getElementById('quill-editor');
+
+const parseMarkdownToHtml = (markdown = '') => {
+  if (typeof window === 'undefined') return markdown;
+  const marked = window.marked;
+  if (!marked) return markdown;
+  if (typeof marked.parse === 'function') return marked.parse(markdown);
+  if (typeof marked === 'function') return marked(markdown);
+  return markdown;
+};
+
+const quillToMarkdown = () => {
+  const textarea = getTextarea();
+  if (!textarea) return '';
+  if (!quillEditor || !turndownService) {
+    return textarea.value || '';
+  }
+  const html = quillEditor.root.innerHTML || '';
+  let markdown = turndownService.turndown(html);
+  if (html === '<p><br></p>' || markdown.replace(/[\s​]+/g, '') === '') {
+    markdown = '';
+  }
+  textarea.value = markdown;
+  return markdown;
+};
+
+const setQuillContent = (markdown = '') => {
+  const textarea = getTextarea();
+  if (textarea) {
+    textarea.value = markdown || '';
+  }
+  if (!quillEditor) return;
+  const html = parseMarkdownToHtml(markdown || '');
+  quillEditor.setContents([]);
+  quillEditor.clipboard.dangerouslyPasteHTML(html);
+  quillEditor.setSelection(0);
+  quillToMarkdown();
+};
+
+const ensureHiddenTextarea = () => {
+  const textarea = getTextarea();
+  if (!textarea) return;
+  textarea.style.display = 'none';
+};
+
+const showTextareaFallback = () => {
+  const textarea = getTextarea();
+  const editor = getEditorContainer();
+  if (textarea) {
+    textarea.style.display = '';
+  }
+  if (editor) {
+    editor.classList.remove('quill-editor');
+  }
+};
 
 export function fillFormFromEvent(e){
   const get = (k)=> e.tags.find(t=>t[0]===k)?.[1];
@@ -9,9 +86,12 @@ export function fillFormFromEvent(e){
   document.getElementById('f-location').value = get('location') || '';
   document.getElementById('f-image').value = get('image') || '';
   document.getElementById('f-summary').value = get('summary') || '';
-  document.getElementById('f-content').value = e.content || '';
+  const content = e.content || '';
+  document.getElementById('f-content').value = content;
   document.getElementById('f-dtag').value = get('d') || '';
   document.getElementById('f-id').value = e.id || '';
+
+  setQuillContent(content);
 
   // tags
   const tags = e.tags.filter(t=>t[0]==='t').map(t=>t[1]);
@@ -37,7 +117,11 @@ export function fill_form_for_debugging(){
 
   const imageUrl = `https://picsum.photos/seed/${uid()}/800/450`;
   const summary = `Kurze Beschreibung ${randInt(1,999)}.`;
-  const content = `**${title}**\n\n${summary}\n\nWeitere Details hier.`;
+  const content = `**${title}**
+
+${summary}
+
+Weitere Details hier.`;
 
   const possibleTags = ['BNE','Interreligiöses','Workshop','Community','Test','Demo'];
   const tags = [];
@@ -61,6 +145,7 @@ export function fill_form_for_debugging(){
   document.getElementById('f-dtag').value = dtag;
   document.getElementById('f-id').value = id;
   setEditableChips(tags);
+  setQuillContent(content);
 
   return {
     title, start: startSecs, end: endsSecs, status, location, image: imageUrl, summary, content, tags, d: dtag, id
@@ -74,6 +159,7 @@ export function clearForm(){
     const el = document.getElementById(id);
     el.value = '';
   }
+  setQuillContent('');
   setEditableChips([]);
 }
 
@@ -85,7 +171,7 @@ export function setEditableChips(tags){
     chip.className = 'chip';
     chip.textContent = t;
     const x = document.createElement('button');
-    x.textContent='✕';
+    x.textContent='x';
     x.title='Entfernen';
     x.addEventListener('click', ()=>{ chip.remove(); });
     chip.appendChild(x);
@@ -95,6 +181,7 @@ export function setEditableChips(tags){
 
 export function getFormData(){
   const chips = [...document.querySelectorAll('#chips-edit .chip')].map(c=>c.childNodes[0].nodeValue.trim());
+  const content = quillToMarkdown();
   return {
     title: document.getElementById('f-title').value.trim(),
     start: localInputToSecs(document.getElementById('f-start').value),
@@ -103,7 +190,7 @@ export function getFormData(){
     location: document.getElementById('f-location').value.trim(),
     image: document.getElementById('f-image').value.trim(),
     summary: document.getElementById('f-summary').value.trim(),
-    content: document.getElementById('f-content').value,
+    content,
     tags: chips,
     d: document.getElementById('f-dtag').value.trim() || null,
     id: document.getElementById('f-id').value.trim() || null,
@@ -111,29 +198,42 @@ export function getFormData(){
 }
 
 export function setupMdToolbar(){
-  const textarea = document.getElementById('f-content');
-  const preview = document.getElementById('md-preview');
-  document.querySelectorAll('.md-toolbar [data-md]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const cmd = btn.dataset.md;
-      const start = textarea.selectionStart, end = textarea.selectionEnd;
-      const sel = textarea.value.slice(start,end);
-      let wrapStart='', wrapEnd='';
-      if(cmd==='bold'){ wrapStart='**'; wrapEnd='**'; }
-      if(cmd==='italic'){ wrapStart='*'; wrapEnd='*'; }
-      if(cmd==='link'){ wrapStart='['; wrapEnd='](https://)'; }
-      if(cmd==='image'){ wrapStart='!['; wrapEnd='](https://)'; }
-      textarea.setRangeText(wrapStart+sel+wrapEnd, start, end, 'end');
-      textarea.focus();
-    });
+  const textarea = getTextarea();
+  const editorContainer = getEditorContainer();
+  if (!textarea || !editorContainer) return;
+
+  const hasQuill = typeof window !== 'undefined' && window.Quill;
+  const hasTurndown = typeof window !== 'undefined' && window.TurndownService;
+  const hasMarked = typeof window !== 'undefined' && window.marked;
+
+  if (!hasQuill || !hasTurndown || !hasMarked) {
+    console.warn('[form] Quill Initialisierung übersprungen – fehlende Abhängigkeiten.');
+    showTextareaFallback();
+    return;
+  }
+
+  if (quillEditor) {
+    setQuillContent(textarea.value);
+    ensureHiddenTextarea();
+    return;
+  }
+
+  quillEditor = new window.Quill(editorContainer, {
+    theme: 'snow',
+    modules: { toolbar: QUILL_TOOLBAR },
+    placeholder: textarea.getAttribute('placeholder') || 'Inhalt hier eingeben…',
   });
-  document.getElementById('btn-preview').addEventListener('click', ()=>{
-    if(preview.classList.contains('hidden')){
-      preview.innerHTML = mdToHtml(textarea.value);
-      preview.classList.remove('hidden');
-    } else {
-      preview.classList.add('hidden');
-    }
+
+  turndownService = new window.TurndownService(TURNDOWN_CONFIG);
+  if (window.QuillMarkdown) {
+    new window.QuillMarkdown(quillEditor, {});
+  }
+
+  ensureHiddenTextarea();
+  setQuillContent(textarea.value);
+
+  quillEditor.on('text-change', () => {
+    quillToMarkdown();
   });
 }
 
@@ -147,7 +247,7 @@ export function setupTagInput(){
       const chip = document.createElement('span');
       chip.className='chip';
       chip.textContent=v;
-      const x = document.createElement('button'); x.textContent='✕'; x.addEventListener('click', ()=>chip.remove());
+      const x = document.createElement('button'); x.textContent='x'; x.addEventListener('click', ()=>chip.remove());
       chip.appendChild(x);
       document.getElementById('chips-edit').appendChild(chip);
       input.value='';
