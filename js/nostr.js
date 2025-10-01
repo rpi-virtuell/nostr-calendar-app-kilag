@@ -5,6 +5,7 @@ import { Config } from './config.js';
 import { uid, b64 } from './utils.js';
 import { hexToBytes, bytesToHex, npubToHex, nsecToHex, pickFastestRelay, diagSign } from './nostr-utils.js';
 import { BunkerManager } from './bunker.js';
+import { clearUploadCache } from './blossom.js';
 
 
 let tools = null;
@@ -254,6 +255,25 @@ export class NostrClient {
       if (this.manualSkBytes) {
         this.manualSkBytes = null; // Manuellen Key aus Speicher löschen
       }
+      
+      // Subscriptions zurücksetzen
+      try {
+        if (window.Subscriptions && typeof window.Subscriptions.reset === 'function') {
+          window.Subscriptions.reset();
+          console.info('[NostrClient] Subscriptions zurückgesetzt');
+        }
+      } catch (e) {
+        console.warn('[NostrClient] Fehler beim Zurücksetzen der Subscriptions:', e);
+      }
+      
+      // Blossom-Uploads aus Local Storage löschen
+      try {
+        clearUploadCache();
+        console.info('[NostrClient] Blossom-Uploads aus Local Storage gelöscht');
+      } catch (e) {
+        console.warn('[NostrClient] Fehler beim Löschen der Blossom-Uploads:', e);
+      }
+      
       try { window.dispatchEvent(new CustomEvent('nip46-disconnected')); } catch { }
     }
 
