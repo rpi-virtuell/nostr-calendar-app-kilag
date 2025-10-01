@@ -15,7 +15,7 @@ function ensureBunkerModal() {
       </header>
       <div class="p-16" style="display:grid; gap:10px">
         <label for="bunker-uri">NIP-46 Connect-URI (bunker://… oder nostrconnect://…)</label>
-        <input id="bunker-uri" placeholder="bunker://… / nostrconnect://…" style="padding:10px;border:1px solid var(--border);border-radius:10px" />
+        <input id="bunker-uri" autocomplete="off" type="text" placeholder="bunker://… / nostrconnect://…" style="padding:10px;border:1px solid var(--border);border-radius:10px" />
         <div style="display:flex; gap:8px">
           <button id="bunker-paste" type="button" class="btn">Aus Zwischenablage einfügen</button>
           <span class="muted" id="bunker-hint"></span>
