@@ -23,6 +23,10 @@ export class MonthView{
   }
 
   render(events){
+    if (!this.root) {
+      console.error('MonthView: root element is null, cannot render calendar');
+      return;
+    }
     this.root.innerHTML='';
     const header = document.createElement('div');
     header.className='cal-header';
