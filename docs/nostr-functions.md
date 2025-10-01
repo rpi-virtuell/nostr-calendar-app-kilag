@@ -1,21 +1,8 @@
-# Nostr.js Refaktorisierung Dokumentation
+# nostr Funktionen
 
 ## Übersicht
 
-Die `nostr.js` Datei wurde erfolgreich refaktorisiert, um die Bunker-spezifische Funktionalität in separate Module auszulagern. Dies verbessert die Übersichtlichkeit, Wartbarkeit und Wiederverwendbarkeit des Codes.
-
-## Änderungen Zusammenfassung
-
-### Vor der Refaktorisierung
-- `nostr.js`: 1097 Zeilen mit gemischten Verantwortlichkeiten
-- Bunker-spezifischer Code war direkt in der `NostrClient` Klasse integriert
-- Schwierige Wartung aufgrund der großen Datei
-
-### Nach der Refaktorisierung
-- `nostr.js`: ~678 Zeilen (Reduzierung um ~38%)
-- `bunker.js`: Erweitert um `BunkerManager` Klasse
-- `nostr-utils.js`: Erweitert um Bunker-Utility-Funktionen
-- Klare Trennung der Verantwortlichkeiten
+Die `nostr.js, nostr-utils.js und bunker.js` wurden refaktorisiert. 
 
 ## Neue Architektur
 
@@ -45,6 +32,7 @@ js/
 - **Auth-Methoden**: NIP-07, Local Key, nsec
 - **Event-Verarbeitung**: publish, fetchEvents
 - **Pool Management**: WebSocket-Verbindungen
+- **Relay-Auswahl**: `pickFastestRelay()` für optimale Relay-Performance
 - **Delegation**: `connectBunker()` delegiert an `BunkerManager`
 
 #### `bunker.js`
@@ -56,9 +44,11 @@ js/
 
 #### `nostr-utils.js`
 - **Allgemeine Utilities**: hex/bytes Konvertierung, npub/nsec
-- **Bunker Utilities**: 
-  - `loadNip46Module()`: NIP-46 Modul laden
+- **Relay-Utilities**:
+  - `pickFastestRelay()`: Standalone-Funktion für Relay-Auswahl
   - `preflightRelay()`: Schneller Relay-Test
+- **Bunker Utilities**:
+  - `loadNip46Module()`: NIP-46 Modul laden
   - `createBunkerSigner()`: BunkerSigner mit Debug-Wrappern
   - `wrapBunkerPoolPublish()`: Debug-Wrapper für pool.publish
   - `wrapBunkerSendRequest()`: Debug-Wrapper für sendRequest
@@ -74,6 +64,9 @@ client.connectBunker(uri, options);
 client.signEventWithTimeout(event, timeout);
 client.login();
 client.publish(data);
+
+// NEU: Schnellsten Relay auswählen
+const fastestRelay = await client.pickFastestRelay(relays, options);
 ```
 
 ### Event-Listener
@@ -104,11 +97,22 @@ export class NostrClient {
   constructor() {
     // ... bestehende Properties
     this.bunker = new BunkerManager(this); // NEU
+    
+    // Speed helpers (memo)
+    this.fastRelay = null;         // gemessener schnellster Relay
+    this.fastProbeAt = 0;          // timestamp der letzten Messung
+    this.fastProbeTTL = 5 * 60e3;  // 5 Minuten Cache
   }
   
   // Delegation für Abwärtskompatibilität
   async connectBunker(connectURI, options = {}) {
     return this.bunker.connectBunker(connectURI, options);
+  }
+  
+  // NEU: Schnellsten Relay ermitteln
+  async pickFastestRelay(relays, { capMs = 1200, fastRelay, fastProbeAt, fastProbeTTL }) {
+    // Implementierung: WebSocket-Race zur Geschwindigkeitsmessung
+    // mit Caching für Performance-Optimierung
   }
 }
 ```
@@ -155,72 +159,47 @@ import { loadNip46Module, preflightRelay, createBunkerSigner, wrapBunkerPoolPubl
 import { client } from './nostr.js'; // Unverändert
 ```
 
-## Vorteile der Refaktorisierung
+## Verwendung von pickFastestRelay
 
-### 1. Übersichtlichkeit
-- **Reduzierte Dateigröße**: nostr.js von 1097 auf 678 Zeilen
-- **Klare Verantwortlichkeiten**: Jede Datei hat einen spezifischen Fokus
-- **Bessere Lesbarkeit**: Weniger gemischter Code
-
-### 2. Wartbarkeit
-- **Fokussierte Bugfixes**: Bunker-Probleme sind in bunker.js isoliert
-- **Einfachere Tests**: Jedes Modul kann unabhängig getestet werden
-- **Besseres Debugging**: Klare Trennung der Logik
-
-### 3. Wiederverwendbarkeit
-- **Modulare Architektur**: Bunker-Logik kann in anderen Projekten verwendet werden
-- **Plugin-fähig**: Leichte Erweiterung um weitere Auth-Methoden
-- **Unabhängige Entwicklung**: Module können separat weiterentwickelt werden
-
-### 4. Zukunftssicherheit
-- **Erweiterbarkeit**: Einfache Integration neuer Auth-Methoden
-- **Testbarkeit**: Bessere Unit-Test-Möglichkeiten
-- **Performance**: Potenzielle Lazy-Loading-Möglichkeiten
-
-## Test-Strategie
-
-### Syntax-Validierung
-Alle Dateien wurden erfolgreich validiert:
-```bash
-node -c js/nostr.js      # ✅ OK
-node -c js/bunker.js     # ✅ OK  
-node -c js/nostr-utils.js # ✅ OK
-node -c js/app.js        # ✅ OK
-node -c js/author.js     # ✅ OK
-node -c js/blossom.js    # ✅ OK
+### Grundlegende Verwendung
+```javascript
+// Einfache Relay-Auswahl
+const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.snort.social'];
+const fastestRelay = await client.pickFastestRelay(relays);
+console.log('Schnellster Relay:', fastestRelay);
 ```
 
-### Funktions-Tests
-Empfohlene Test-Szenarien:
-1. **Bunker-Verbindung**: `client.connectBunker()` testen
-2. **Event-Signatur**: Verschiedene Event-Kinds signieren
-3. **Auto-Reconnect**: Seitenreload mit Bunker-Verbindung
-4. **UI-Events**: Modal-Interaktion und Event-Handler
-5. **Debug-Funktionen**: `window.nip46.*` Methoden testen
+### Mit Caching-Optionen
+```javascript
+// Mit benutzerdefinierten Caching-Optionen
+const options = {
+  capMs: 2000,              // Maximale Wartezeit (Standard: 1200ms)
+  fastRelay: client.fastRelay,    // Vorheriger schnellster Relay
+  fastProbeAt: client.fastProbeAt, // Zeit der letzten Messung
+  fastProbeTTL: 10 * 60e3   // Cache-Dauer (Standard: 5 Minuten)
+};
 
-## Migration Guide
+const fastestRelay = await client.pickFastestRelay(relays, options);
+// client.fastRelay und client.fastProbeAt werden automatisch aktualisiert
+```
 
-### Für Entwickler
-Keine Änderungen erforderlich - bestehender Code funktioniert weiterhin.
+### In subscriptions.js verwendet
+```javascript
+// Beispiel aus subscriptions.js
+const relay = await client.pickFastestRelay(Config.relays, {
+  capMs: 1200,
+  fastRelay: client.fastRelay,
+  fastProbeAt: client.fastProbeAt,
+  fastProbeTTL: client.fastProbeTTL
+}).catch(() => Config.relays[0]);
 
-### Für Maintainer
-- Bunker-spezifische Bugs: `bunker.js` prüfen
-- Allgemeine Nostr-Probleme: `nostr.js` prüfen  
-- Utility-Probleme: `nostr-utils.js` prüfen
+// Verwendung für schnelle Anfragen
+const events = await client.listByWebSocketOne(relay, filter, 2500);
+```
 
-### Für Erweiterungen
-- Neue Auth-Methoden: In `NostrClient` integrieren
-- Bunker-Erweiterungen: `BunkerManager` erweitern
-- Neue Utilities: In `nostr-utils.js` hinzufügen
-
-## Zusammenfassung
-
-Die Refaktorisierung wurde erfolgreich abgeschlossen und bietet:
-- ✅ **38% Reduzierung** der nostr.js Dateigröße
-- ✅ **Klare Trennung** der Verantwortlichkeiten
-- ✅ **Volle Abwärtskompatibilität**
-- ✅ **Verbesserte Wartbarkeit**
-- ✅ **Bessere Testbarkeit**
-- ✅ **Zukunftssichere Architektur**
-
-Die neue Struktur macht den Code übersichtlicher, leichter zu warten und bereit für zukünftige Erweiterungen.
+### Performance-Optimierung
+Die Methode verwendet:
+- **WebSocket-Race**: Mehrere Relays werden parallel getestet
+- **Caching**: Ergebnisse werden für 5 Minuten zwischengespeichert
+- **Fallback**: Bei Fehlern wird der erste Relay aus der Liste verwendet
+- **Limitierung**: Maximal 4 Relays werden getestet (Performance)

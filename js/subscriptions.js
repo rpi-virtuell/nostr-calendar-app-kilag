@@ -290,7 +290,12 @@ class SubscriptionsManager {
       try { events = await client.listFromPool(Config.relays, filter, 3500); } catch {
         // Fallback: schnellstes Relay
         try {
-          const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+          const relay = await client.pickFastestRelay(Config.relays, {
+            capMs: 1200,
+            fastRelay: client.fastRelay,
+            fastProbeAt: client.fastProbeAt,
+            fastProbeTTL: client.fastProbeTTL
+          }).catch(() => Config.relays[0]);
           events = await client.listByWebSocketOne(relay, filter, 2500);
         } catch { events = []; }
       }
@@ -324,7 +329,12 @@ class SubscriptionsManager {
       if (!pubkeyHex || !/^[0-9a-f]{64}$/i.test(pubkeyHex)) return false;
       await client.initPool();
       const d = this.listConfig.d;
-      const relay = await client.pickFastestRelay(Config.relays).catch(() => Config.relays[0]);
+      const relay = await client.pickFastestRelay(Config.relays, {
+        capMs: 1200,
+        fastRelay: client.fastRelay,
+        fastProbeAt: client.fastProbeAt,
+        fastProbeTTL: client.fastProbeTTL
+      }).catch(() => Config.relays[0]);
       const filter = { kinds: [this.listConfig.kind || 30000], authors: [pubkeyHex], '#d': [d], limit: 1 };
       let events = [];
       try { events = await client.listByWebSocketOne(relay, filter, 2500); } catch { try { events = await client.listFromPool(Config.relays, filter, 3500); } catch { events = []; } }

@@ -114,11 +114,11 @@ MIT
 
 ## ToDo-Liste
 
-- [ ] WySiWyG Editor
-- [ ] Edit Tests
-- [ ] UI Verbesserungen
-- [ ] Kachelansicht verbessern
-- [ ] Mobile-Optimierungen: Touch-Handling für Calendar, responsive Modals.
-- [ ] NIP-89 Support: Event-Attachments/Files integrieren.
-- [ ] Error-Handling verbessern: Netzwerk-Fehler mit Retry-Button, Offline-Modus (IndexedDB).
+- [x] WySiWyG Editor
+- [x] Edit Tests
+- [x] UI Verbesserungen
+- [x] Kachelansicht verbessern
+- [x] Mobile-Optimierungen: Touch-Handling für Calendar, responsive Modals.
+- [x] NIP-89 Support: Event-Attachments/Files integrieren.
+- [x] Error-Handling verbessern: Netzwerk-Fehler mit Retry-Button, Offline-Modus (IndexedDB).
 - [ ] i18n: Deutsche/Englische Texte, Locale für Datum/Uhrzeit.

@@ -375,7 +375,7 @@ export class NostrClient {
 
       // -------- FAST PATH --------
       // 1) schnellsten Relay messen
-      const fastRelay = await pickFastestRelay(Config.relays, { capMs: 1200, fastRelay: this.fastRelay, fastProbeAt: this.fastProbeAt, fastProbeTTL: this.fastProbeTTL });
+      const fastRelay = await this.pickFastestRelay(Config.relays, { capMs: 1200, fastRelay: this.fastRelay, fastProbeAt: this.fastProbeAt, fastProbeTTL: this.fastProbeTTL });
       this.fastRelay = fastRelay;
       this.fastProbeAt = Date.now();
 
@@ -572,6 +572,36 @@ export class NostrClient {
       console.warn('[signEventWithTimeout] failed:', msg);
       throw err;
     }
+  }
+
+  // ---- Fastest Relay Auswahl (als Methode des Clients)
+  async pickFastestRelay(relays, { capMs = 1200, fastRelay, fastProbeAt, fastProbeTTL }) {
+    const now = Date.now();
+    if (fastRelay && (now - fastProbeAt) < fastProbeTTL) return fastRelay || relays[0];
+
+    const candidates = (relays || []).slice(0, 4); // nicht zu viele
+    if (!candidates.length) return 'wss://relay.damus.io';
+
+    const aborts = [];
+    const winner = await new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve(candidates[0]); } }, capMs);
+
+      candidates.forEach(url => {
+        try {
+          const ws = new WebSocket(url);
+          aborts.push(() => { try { ws.close(); } catch { } });
+          ws.addEventListener('open', () => {
+            if (!settled) { settled = true; clearTimeout(timer); resolve(url); }
+            try { ws.close(); } catch { }
+          });
+          ws.addEventListener('error', () => { /* ignore */ });
+        } catch { /* ignore */ }
+      });
+    }).catch(() => candidates[0]);
+
+    aborts.forEach(fn => fn());
+    return winner || candidates[0];
   }
 }
 
