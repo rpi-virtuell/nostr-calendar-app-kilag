@@ -44,7 +44,7 @@ function removeCachedUpload(url) {
 // Create authorization header for Blossom (NIP-98)
 async function createBlossomAuth(method, url, action = 'upload') {
   try {
-    // Check if user is logged in
+    // Check if user is logged in (works for all auth methods including WordPress)
     if (!client.signer || !client.pubkey) {
       console.warn('Not logged in, trying anonymous upload...');
       return null;
@@ -63,6 +63,7 @@ async function createBlossomAuth(method, url, action = 'upload') {
       content: ''
     };
 
+    // Determine timeout based on signer type
     // NIP-46 (Bunker) kann SEHR lange dauern für kind 24242 - erhöhtes Timeout
     // Erste Signatur nach Connect kann 30-60 Sekunden dauern!
     const timeout = client.signer?.type === 'nip46' ? 60000 : 8000;
@@ -72,7 +73,16 @@ async function createBlossomAuth(method, url, action = 'upload') {
       console.warn('[Blossom] NIP-46 Bunker detected. This may take up to 60 seconds. Please approve the signature request in your Bunker app!');
     }
     
+    if (client.signer?.type === 'wordpress') {
+      console.debug('[Blossom] Using WordPress SSO signer for authentication');
+    }
+    
+    // Sign event using the appropriate signer (NIP-07, NIP-46, or WordPress)
     const signed = await client.signEventWithTimeout(authEvent, timeout);
+    
+    if (!signed || !signed.sig) {
+      throw new Error('Signatur fehlgeschlagen oder ungültig');
+    }
     
     // Create authorization header
     const authHeader = 'Nostr ' + btoa(JSON.stringify(signed));
@@ -80,17 +90,23 @@ async function createBlossomAuth(method, url, action = 'upload') {
   } catch (error) {
     console.error('[Blossom] Failed to create auth header:', error);
     
+    const errorMsg = error?.message || String(error);
+    
     // Spezielle Fehlerbehandlung für NIP-46
     if (client.signer?.type === 'nip46') {
-      const errorMsg = error?.message || String(error);
       if (errorMsg.includes('timeout')) {
         throw new Error('NIP-46 Bunker Signatur-Timeout für kind 24242. Bitte stellen Sie sicher, dass:\n1. Sie die Permission für kind 24242 (NIP-98 Auth) im Bunker freigegeben haben\n2. Sie die Signaturanfrage im Bunker bestätigen\n3. Die Bunker-Verbindung aktiv ist');
       }
       throw new Error(`NIP-46 Bunker Signatur fehlgeschlagen: ${errorMsg}\n\nBitte prüfen Sie, ob kind 24242 (NIP-98 Auth) im Bunker erlaubt ist.`);
     }
     
+    // WordPress-spezifische Fehlerbehandlung
+    if (client.signer?.type === 'wordpress') {
+      throw new Error(`WordPress SSO Signatur fehlgeschlagen: ${errorMsg}`);
+    }
+    
     // Generischer Fehler für andere Signer-Typen
-    throw new Error(`Auth-Header konnte nicht erstellt werden: ${error?.message || error}`);
+    throw new Error(`Auth-Header konnte nicht erstellt werden: ${errorMsg}`);
   }
 }
 
@@ -288,6 +304,8 @@ export async function listBlossom() {
   const endpoint = primaryServer ? primaryServer.url : 'https://files.sovbit.host';
   const protocol = primaryServer ? primaryServer.protocol : 'nip96';
   
+  console.info(`Listing files from server: ${endpoint} (protocol: ${protocol})`);
+
   // Try server list endpoint with auth (requires pubkey)
   try {
     if (client.signer && client.pubkey) {
@@ -732,8 +750,11 @@ export function getCacheStats() {
   };
 }
 
-// Debug-Tool: Teste ob Bunker kind 24242 signieren kann
+// Debug-Tool: Teste ob kind 24242 signieren funktioniert (für alle Signer-Typen)
 export async function testBlossomAuthSigning() {
+  console.info('[Blossom Test] Aktueller Signer:', client.signer ? client.signer.type : 'none');
+  console.info('[Blossom Test] Pubkey:', client.pubkey ? client.pubkey.substring(0, 16) + '...' : 'none');
+  
   if (!client.signer || !client.pubkey) {
     console.error('[Blossom Test] Nicht angemeldet!');
     return { ok: false, error: 'Nicht angemeldet' };
@@ -757,8 +778,14 @@ export async function testBlossomAuthSigning() {
     };
 
     const timeout = signerType === 'nip46' ? 60000 : 8000;
-    console.warn(`[Blossom Test] Testing with ${timeout}ms timeout. For NIP-46, please approve in Bunker when prompted!`);
     
+    if (signerType === 'nip46') {
+      console.warn(`[Blossom Test] Testing with ${timeout}ms timeout. For NIP-46, please approve in Bunker when prompted!`);
+    } else if (signerType === 'wordpress') {
+      console.warn('[Blossom Test] Testing WordPress SSO signing...');
+    }
+    
+    // Use unified signEventWithTimeout which works for all signer types
     const signed = await client.signEventWithTimeout(testEvent, timeout);
 
     if (signed && signed.id && signed.sig) {

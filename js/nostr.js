@@ -553,6 +553,12 @@ export class NostrClient {
           prepared.pubkey = pk;
           prepared._nip46_pubkey = pk;
         }
+      } else if (signer?.type === 'wordpress') {
+        // Für WordPress: pubkey setzen (wird vom Backend benötigt)
+        const pk = pkLocal || this.pubkey;
+        if (pk && !prepared.pubkey) {
+          prepared.pubkey = pk;
+        }
       } else {
         if (pkLocal && !prepared.pubkey) prepared.pubkey = pkLocal;
         if (prepared.pubkey && this.pubkey && prepared.pubkey !== this.pubkey) {
@@ -568,6 +574,10 @@ export class NostrClient {
     if (signer?.type === 'nip46') {
       return this.bunker.signEventWithTimeoutBunker(prepared, timeoutMs);
     }
+    
+    // WordPress SSO nutzt die Standard-Signatur-Logik (signer.signEvent)
+    // Die WordPress-spezifische Implementierung in WordPressAuthPlugin.wordpressSigner.signEvent
+    // ruft window.WP_NostrTools.nostr_sign() auf
 
     // Allgemeine Signatur-Logik für NIP-07 und Local Key
     const effectiveTimeout = timeoutMs;

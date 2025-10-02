@@ -8,6 +8,7 @@ if(window.WP_NostrTools){
   console.error('WP_NostrTools is not available. Make sure nostr-app.js is loaded from WP Plugin NostrSigner Wrapper Plugin - > App Wrapper');
 }
 import { AuthPluginInterface } from './AuthPluginInterface.js';
+import { client } from '../nostr.js';
 
 
 export class WordPressAuthPlugin extends AuthPluginInterface {
@@ -16,6 +17,32 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     this.name = 'wordpress';
     this.displayName = 'WordPress SSO';
     this.currentSession = null;
+    this.client = client;
+    
+    // Create WordPress signer object that implements the signer interface
+    this.wordpressSigner = {
+      type: 'wordpress',
+      getPublicKey: async () => {
+        const identity = await this.getIdentity();
+        return identity?.user?.pubkey || null;
+      },
+      signEvent: async (event) => {
+        // Use WordPress nostr_sign method
+        return await window.WP_NostrTools.nostr_sign(
+          event,
+          'user',
+          {
+            signPayload: {
+              source: 'nostr-calendar-app',
+              kind: event.kind
+            }
+          }
+        );
+      },
+      // Additional metadata for WordPress signer
+      provider: 'wordpress',
+      wordpress: true
+    };
   }
 
   async initialize() {
@@ -29,6 +56,17 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     // Check for WordPress SSO session in localStorage if not already set
     if (!this.currentSession) {
       await this.checkLocalSession();
+    }
+
+    // Set WordPress signer in global client if session is active
+    if (this.currentSession) {
+      const pubkey = this.currentSession.user?.pubkey;
+      if (pubkey) {
+        console.log('[WordPressAuth] Setting WordPress signer in global client');
+        this.client.signer = this.wordpressSigner;
+        this.client.pubkey = pubkey;
+        this.client.signerType = 'wordpress';
+      }
     }
 
     // Clean URL
@@ -55,13 +93,21 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
   }
 
   async logout() {
-    // Redirect zu WordPress Logout
-    const logoutUrl = window.NostrSignerConfig?.logoutUrl || '/wp-login.php?action=logout';
-    window.location.href = logoutUrl;
-
+    // Clean up global client signer if it's WordPress
+    if (this.client.signer?.type === 'wordpress') {
+      console.log('[WordPressAuth] Removing WordPress signer from global client');
+      this.client.signer = null;
+      this.client.pubkey = null;
+      this.client.signerType = null;
+    }
+    
     // Session-Cleanup
     this.currentSession = null;
     localStorage.removeItem('wp_session');
+    
+    // Redirect zu WordPress Logout
+    const logoutUrl = window.NostrSignerConfig?.logoutUrl || '/wp-login.php?action=logout';
+    window.location.href = logoutUrl;
   }
 
   async createEvent(eventData) {
@@ -230,6 +276,16 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       const storedSession = localStorage.getItem('wp_session');
       if (storedSession) {
         this.currentSession = JSON.parse(storedSession);
+        
+        // Set signer in global client if we have a pubkey
+        const pubkey = this.currentSession?.user?.pubkey;
+        if (pubkey && (!this.client.signer || this.client.signer.type !== 'wordpress')) {
+          console.log('[WordPressAuth] Setting WordPress signer from cached session');
+          this.client.signer = this.wordpressSigner;
+          this.client.pubkey = pubkey;
+          this.client.signerType = 'wordpress';
+        }
+        
         return this.currentSession;
       }else{
         // fetch from /me endpoint
@@ -255,6 +311,16 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
           };
           this.currentSession = data;
           localStorage.setItem('wp_session', JSON.stringify(data));
+          
+          // Set signer in global client
+          const pubkey = data.user?.pubkey;
+          if (pubkey) {
+            console.log('[WordPressAuth] Setting WordPress signer from /me response');
+            this.client.signer = this.wordpressSigner;
+            this.client.pubkey = pubkey;
+            this.client.signerType = 'wordpress';
+          }
+          
           return data;
         }
       } 
