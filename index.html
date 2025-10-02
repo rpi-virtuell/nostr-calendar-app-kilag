@@ -4,91 +4,214 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nostr Calendar (NIP-52) — Demo App</title>
+  <!-- <base href="/wp-content/plugins/nostr-calendar-wordpress/assets/"> -->
   <meta name="description" content="Erstellen, posten und aktualisieren Sie Nostr Kalender-Events (Kind 31923, NIP‑52)."/>
   <link rel="stylesheet" href="./css/themes.css">
   <link rel="stylesheet" href="./css/base.css">
+  <link rel="stylesheet" href="./css/filter.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quilljs-markdown@latest/dist/quilljs-markdown-common.css">
 </head>
 <body class="theme-light">
   <header class="app-header">
-    <h1>Nostr Calendar</h1>
-    <div class="spacer"></div>
-
-    <!-- View-Switch -->
-    <div class="view-switch">
-      <button id="btn-view-cards" class="btn btn-ghost">Grid Ansicht</button>
-      <button id="btn-view-month" class="btn btn-ghost">Kalenderansicht</button>
-    </div>
-    <div class="theme-switch">
-      <label for="theme-select" class="sr-only">Theme</label>
-      <select id="theme-select" aria-label="Theme wählen">
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="custom">Custom</option>
-      </select>
-    </div>
-
-    <!-- Top-Actions (im Header) -->
-    <div class="top-actions" style="display:flex; gap:8px; margin:0 12px;">
-      <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
-      <button id="btn-new" class="btn btn-primary" title="Neuen Termin anlegen">Neuer Termin</button>
-      <button id="btn-ics-import" class="btn">ICS importieren</button>
-      <button id="btn-ics-export" class="btn">ICS exportieren</button>
-      <button id="btn-media" class="btn">Media</button>
-    </div>
-
-    <!-- Auth: Dropdown menu (keeps legacy buttons hidden for compatibility) -->
-    <div id="auth-box" class="auth-box">
-      <!-- Visible dropdown trigger -->
-      <div class="dropdown" style="position:relative;">
-        <button id="btn-login-menu" class="btn" aria-haspopup="true" aria-expanded="false">Login ▾</button>
-        <ul id="login-menu" class="dropdown-menu hidden" aria-label="Login Optionen" style="position:absolute; left:0; top:calc(100% + 6px); list-style:none; margin:0; padding:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.08); border-radius:6px; min-width:200px;">
-          <li><button id="login-menu-nostr" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Mit Nostr Key einloggen</button></li>
-          <li><button id="login-menu-extension" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Mit Extension (nos2x-fox) einloggen</button></li>
-          <li><button id="login-menu-bunker" class="btn btn-ghost" style="display:block; width:100%; text-align:left;">Bunker verbinden</button></li>
-        </ul>
+    <!-- Header Row 1: Logo und Auth -->
+    <div class="header-row header-row-1">
+      <div class="header-group-left">
+        <h1>Nostr Calendar</h1>
       </div>
+      <div class="spacer"></div>
+      <div class="header-group-right">
+        <div id="auth-box" class="auth-box">
+          <div id="whoami" class="whoami"></div>
+          <button id="sidebar-toggle" class="btn" title="Einstellungen & Login">
+            <span id="sidebar-icon">≡</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
-      <!-- Legacy buttons removed; use dropdown menu (Bunker button remains visible for its UI) -->
-      <!-- <button id="btn-bunker" class="btn">Bunker verbinden</button> -->
-      <button id="btn-logout" class="btn btn-ghost hidden">Logout</button>
-      <div id="whoami" class="whoami"></div>
+    <!-- Header Row 2: Navigation und Actions -->
+    <div class="header-row header-row-2">
+      <div class="header-group-center">
+        <!-- View-Switch -->
+        <div class="view-switch">
+          <button id="btn-view-cards" class="btn btn-ghost">Kachelansicht</button>
+          <button id="btn-view-month" class="btn btn-ghost">Kalenderansicht</button>
+          <button id="btn-refresh" class="btn btn-ghost" title="Neu laden">↻</button>
+        </div>
+
+        <!-- Top-Actions -->
+        <div class="top-actions">
+          <button id="btn-new" class="btn btn-primary" title="Neuen Termin anlegen">Neuer Termin</button>
+          <button id="btn-media" class="btn">Media</button>
+        </div>
+      </div>
     </div>
   </header>
 
-    <!-- Nur noch die Filter in der Toolbar (wird in Monatsansicht versteckt) -->
-  <section class="toolbar" id="toolbar">
-    <div class="toolbar-row" id="filter-row">
-      <div class="field">
-        <label>Tags</label>
-        <input id="tag-search" placeholder="Tag suchen & Enter zum Hinzufügen" />
-        <div id="selected-tags" class="chips"></div>
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar hidden">
+    <div class="sidebar-header">
+      <h3>Einstellungen</h3>
+      <button id="sidebar-close" class="btn btn-ghost">✕</button>
+    </div>
+    
+      
+    <div class="sidebar-content">
+      <!-- Authentication Section -->
+      <section class="sidebar-section logout hidden">
+        <h4>🔓 Du bist eingeloggt</h4>
+        <div id="sidebar-whoami" class="muted"></div>
+        <div class="field">
+          <button id="btn-logout" class="btn-ghost hidden">Logout</button>
+        </div>
+      </section>
+      <section class="sidebar-section auth">
+        <h4>🔐 Authentifizierung</h4>
+        <div class="auth-options">
+          <button id="auth-nostr" class="sidebar-btn" data-auth="nostr">
+            <span class="auth-icon">🔑</span>
+            <div class="auth-details">
+              <div class="auth-title">Nostr Key</div>
+              <div class="auth-desc">Manueller nsec Login</div>
+            </div>
+          </button>
+          
+          <button id="auth-extension" class="sidebar-btn" data-auth="extension">
+            <span class="auth-icon">🦊</span>
+            <div class="auth-details">
+              <div class="auth-title">Browser Extension</div>
+              <div class="auth-desc">nos2x-fox, Alby, etc.</div>
+            </div>
+          </button>
+          
+          <button id="auth-bunker" class="sidebar-btn" data-auth="bunker">
+            <span class="auth-icon">🔗</span>
+            <div class="auth-details">
+              <div class="auth-title">Bunker (NIP-46)</div>
+              <div class="auth-desc">Remote Signer</div>
+            </div>
+          </button>
+          
+        </div>
+      </section>
+
+      <!-- Settings Section -->
+      <section class="sidebar-section">
+        <h4>⚙️ Einstellungen</h4>
+        <div class="field">
+          
+        
+          <div class="settings-group">
+            <label for="sidebar-theme-select">Theme:</label>
+            <select id="sidebar-theme-select" class="form-control">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      
+        <!-- Subscriptions Section -->
+        <section class="sidebar-section">
+          <h4>👥 Abonnements</h4>
+          <div class="settings-group gap-sm">
+            <div class="field">
+              <label for="subs-list-select">Meine Listen (NIP‑51):</label>
+            
+              <select id="subs-list-select" aria-label="Liste wählen">
+                <option value="">–</option>
+              </select>
+            </div>
+            
+          </div>
+          <div id="subscriptions-list" class="subscriptions-list mt-10"></div>
+          <div class="settings-group gap-sm">
+            <div class="field">
+              <label for="subscription-input">Weiteren npub abonnieren:</label>
+              <input id="subscription-input" placeholder="npub1… oder 64-stelliger Hex" />
+              <button id="subscription-add" class="btn btn-primary btn-ghost btn-small btn-block" type="button">Hinzufügen</button>
+            </div>
+            
+            <div class="row row-inline gap-sm buttons-two">
+              <button id="subs-share-link" class="btn btn-ghost btn-small" type="button" title="Link zu dieser Liste kopieren">Liste teilen</button>
+              <button id="subs-save-as-own" class="btn btn-small" type="button" title="Diese Liste als eigene speichern">Liste speichern</button>
+            </div>
+          </div>
+          
+        </section>
+
+      <!-- Import/Export Section -->
+      <section class="sidebar-section">
+        <h4>📁 Import/Export</h4>
+        <div class="action-buttons">
+          <div class="field">
+            <button id="sidebar-ics-import" class="sidebar-btn">
+              <span class="auth-icon">📥</span>
+              <div class="auth-details">
+                <div class="auth-title">ICS Import</div>
+              </div>
+            </button>
+            <button id="sidebar-ics-export" class="sidebar-btn">
+              <span class="auth-icon">📤</span>
+              <div class="auth-details">
+                <div class="auth-title">ICS Export</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Sidebar Overlay -->
+  <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
+
+  <!-- Filter Toolbar -->
+  <section class="filter-toolbar" id="filter-toolbar" aria-label="Terminfilter">
+    <div class="filter-row" id="filter-row">
+      <!-- Tag Selector -->
+      <div class="field tagbox">
+        <!-- <label for="tag-input">Tags</label> -->
+        <input id="tag-input" class="tag-input" type="text" placeholder="Tag suchen & Enter zum Hinzufügen" autocomplete="off" aria-describedby="tag-help">
+        <div id="tag-suggest" class="suggest" role="listbox" aria-label="Tag-Vorschläge"></div>
+      
       </div>
+
+      <!-- Text Search -->
       <div class="field">
-        <label>Suche</label>
-        <input id="text-search" placeholder="Titel & Tags durchsuchen…" />
+        <!-- <label for="search-input">Suche</label> -->
+        <input id="search-input" type="text" placeholder="Titel & Tags durchsuchen …">
       </div>
+
+      <!-- Month Dropdown -->
       <div class="field">
-        <label for="month-select">Monat</label>
+        <!-- <label for="month-select">Monat</label> -->
         <select id="month-select" aria-label="Monat wählen">
           <option value="">Alle Monate</option>
         </select>
       </div>
-      
-    </div>
-</section>
 
-  <main>
-    <div id="result-info" class="result-info">–</div>
-    <div id="grid" class="grid"></div>
-    <div id="month-grid" class="month-grid hidden"></div>
-  </main>
+      <!-- Reset / Result -->
+      <button id="reset-filters" class="btn ghost" title="Alle Filter zurücksetzen">Zurücksetzen</button>
+      <div class="result-info" id="result-info">–</div>
+    </div>
+
+    <div class="filter-row">
+      <div id="selected-tags" class="selected-tags" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- Month Grid for Calendar View -->
+  <div id="month-grid" class="month-grid hidden"></div>
 
   <!-- Modal: Edit/Create -->
   <dialog id="event-modal" class="modal">
     <form method="dialog" id="event-form" class="event-form">
       <header class="modal-header">
         <h2 id="modal-title">Kalendereintrag</h2>
-        <button id="close-modal" class="btn btn-ghost" value="cancel" title="Schließen">✕</button>
+        <button id="close-modal" class="btn btn-ghost" type="button" value="cancel" title="Schließen">✕</button>
       </header>
       <div class="form-grid">
         <div class="col">
@@ -97,11 +220,11 @@
         </div>
         <div class="col">
           <label>Beginn</label>
-          <input id="f-starts" type="datetime-local" required />
+          <input id="f-start" type="datetime-local" required />
         </div>
         <div class="col">
           <label>Ende</label>
-          <input id="f-ends" type="datetime-local" required />
+          <input id="f-end" type="datetime-local" required />
         </div>
         <div class="col">
           <label>Status</label>
@@ -119,8 +242,9 @@
           <label>Bild-URL</label>
           <input id="f-image" placeholder="https://…" />
           <div class="row gap">
-            <input id="f-image-file" type="file" accept="image/*" />
-            <button id="btn-upload" class="btn btn-ghost" type="button">Upload » URL einfügen</button>
+            <button id="btn-select-from-blossom" class="btn btn-ghost" type="button" title="Aus Mediathek auswählen">📁 Mediathek</button>
+            <input id="f-image-file" type="file" accept="image/*" style="display:none;" />
+            <button id="btn-upload-image" class="btn btn-ghost" type="button" title="Neues Bild hochladen">📤 Hochladen</button>
           </div>
         </div>
         <div class="col col-2">
@@ -129,15 +253,8 @@
         </div>
         <div class="col col-2">
           <label>Inhalt (Markdown)</label>
-          <div class="md-toolbar">
-            <button type="button" data-md="bold" class="btn btn-ghost">B</button>
-            <button type="button" data-md="italic" class="btn btn-ghost"><i>I</i></button>
-            <button type="button" data-md="link" class="btn btn-ghost">🔗</button>
-            <button type="button" data-md="image" class="btn btn-ghost">🖼</button>
-            <button type="button" id="btn-preview" class="btn btn-ghost">Vorschau</button>
-          </div>
-          <textarea id="f-content" rows="10" placeholder="**Fettschrift** _kursiv_ [Link](https://)…"></textarea>
-          <div id="md-preview" class="md-preview hidden"></div>
+          <div id="quill-editor" class="quill-editor"></div>
+          <textarea id="f-content" rows="10" placeholder="**Fettschrift** _kursiv_ [Link](https://)…" style="display:none;"></textarea>
         </div>
         <div class="col col-2">
           <label>Tags (mit Enter bestätigen)</label>
@@ -148,16 +265,51 @@
 
       <footer class="modal-footer">
         <div class="left">
-          <button id="btn-delete" class="btn btn-danger hidden" type="button">Löschen</button>
+          <button id="btn-cancel-event" class="btn btn-danger hidden" type="button">Termin absagen</button>
+          <button id="btn-delete" class="btn btn-danger hidden" type="button">Termin löschen</button>
         </div>
         <div class="right">
-          <button class="btn" value="cancel">Abbrechen</button>
-          <button id="btn-save" class="btn btn-primary" value="default">Speichern & veröffentlichen</button>
+          <button class="btn" type="button" value="cancel">Abbrechen</button>
+          <button id="btn-save" class="btn btn-primary" type="submit" value="default">Speichern & veröffentlichen</button>
         </div>
       </footer>
       <input type="hidden" id="f-dtag" />
       <input type="hidden" id="f-id" />
     </form>
+  </dialog>
+
+  <!-- Modal: Event Detail View -->
+  <dialog id="event-detail-modal" class="modal">
+    <header class="modal-header">
+      <h2 id="detail-modal-title">Event Details</h2>
+      <button id="close-detail-modal" class="btn btn-ghost" title="Schließen">✕</button>
+    </header>
+    <div class="modal-body">
+      <div id="detail-modal-image-container" class="detail-image-container"></div>
+      <div class="detail-content">
+        <div class="detail-section">
+          <h3 id="detail-modal-summary" class="detail-summary"></h3>
+          <div id="detail-modal-location" class="detail-location"></div>
+          <div id="detail-modal-date" class="detail-date"></div>
+        </div>
+        <div class="detail-section">
+          <h4>Tags</h4>
+          <div id="detail-modal-tags" class="detail-tags"></div>
+        </div>
+        <div class="detail-section">
+          <h4>Beschreibung</h4>
+          <div id="detail-modal-content" class="detail-content-html"></div>
+        </div>
+      </div>
+    </div>
+    <footer class="modal-footer">
+      <div class="left">
+        <button id="btn-edit-from-detail" class="btn btn-primary">Bearbeiten</button>
+      </div>
+      <div class="right">
+        <button id="btn-close-detail" class="btn" value="cancel">Schließen</button>
+      </div>
+    </footer>
   </dialog>
 
   <!-- Modal: Blossom Manager -->
@@ -167,7 +319,7 @@
       <button id="close-blossom" class="btn btn-ghost" title="Schließen">✕</button>
     </header>
     <div class="p-16">
-      <div class="row gap" style="margin-bottom:10px">
+  <div class="row gap mt-10">
         <label>Typ</label>
         <select id="blossom-filter-type">
           <option value="">Alle</option>
@@ -177,9 +329,9 @@
           <option value="other">Andere</option>
         </select>
         <label>Größe min (KB)</label>
-        <input id="blossom-size-min" type="number" style="max-width:120px" />
+  <input id="blossom-size-min" type="number" class="mw-120" />
         <label>max</label>
-        <input id="blossom-size-max" type="number" style="max-width:120px" />
+  <input id="blossom-size-max" type="number" class="mw-120" />
         <label>Seite</label>
         <button id="blossom-prev" class="btn btn-ghost">←</button>
         <span id="blossom-pageinfo" class="muted">1/1</span>
@@ -192,7 +344,7 @@
         </select>
       </div>
       <div id="blossom-drop" class="dropzone">Dateien hier ablegen oder klicken, um auszuwählen…</div>
-      <div class="row gap" style="margin-bottom:10px">
+  <div class="row gap mt-10">
         <button id="btn-blossom-refresh" class="btn">Liste aktualisieren</button>
         <span class="muted" id="blossom-info">–</span>
       </div>
@@ -205,34 +357,32 @@
     </div>
   </dialog>
 
-  <template id="card-tpl">
-    <article class="card">
-      <div class="card-cover"></div>
-      <div class="card-badge"></div>
-      <div class="card-body">
-        <h3 class="card-title"></h3>
-        <div class="meta">
-          <span class="when"></span>
-          <span class="where"></span>
-        </div>
-        <p class="summary"></p>
-        <div class="tags"></div>
-        <div class="actions">
-          <button class="btn btn-ghost btn-small edit">Bearbeiten</button>
-        </div>
-      </div>
-    </article>
-  </template>
+  <!-- Modal: Media Preview -->
+  <dialog id="preview-modal" class="modal">
+    <header class="modal-header">
+      <h2>Vorschau</h2>
+      <button id="close-preview" class="btn btn-ghost" title="Schließen">✕</button>
+    </header>
+    <div id="preview-body" class="p-16"></div>
+  </dialog>
+
+  <!-- Event Wall Container -->
+  <div id="event-wall" class="event-wall"></div>
 
   <!-- Progress Modal -->
   <dialog id="progress-modal" class="modal">
     <header class="modal-header"><h2>Veröffentliche…</h2></header>
     <div class="p-16">
-      <div class="progress"><div class="bar" id="progress-bar" style="width:0%"></div></div>
-      <div id="progress-text" class="muted" style="margin-top:8px">0%</div>
+  <div class="progress"><div class="bar" id="progress-bar"></div></div>
+  <div id="progress-text" class="muted mt-8">0%</div>
     </div>
   </dialog>
 
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/turndown@7.1.1/dist/turndown.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quilljs-markdown@latest/dist/quilljs-markdown.js"></script>
+  <script type="module" src="./js/filter.js"></script>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

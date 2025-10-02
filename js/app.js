@@ -2,16 +2,27 @@ import { Config } from './config.js';
 import { client } from './nostr.js';
 window.nostrClient = client; // Debug-Haken für die Konsole
 import { renderGrid, buildMonthOptions } from './views/list.js';
-import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips } from './views/form.js';
+import { initDetailSystem } from './views/detail.js';
+import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips, setupFormSubmitHandler } from './views/form.js';
 import { mdToHtml } from './utils.js';
 import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
 import { uploadWithNip96 } from './nip96.js';
 import { on, chip } from './utils.js';
-import { setupAuthUI, updateAuthUI, logout, isLoggedIn, updateWhoami } from './auth.js';
-import { setupBunkerUI, autoReconnectBunker, setupBunkerEvents, initNip46FromUrl } from './bunker.js';
+import { setupBunkerEvents, initNip46FromUrl, connectBunker, autoReconnectBunker } from './bunker.js';
 import { setupBlossomUI, refreshBlossom, renderBlossom, blossomState } from './blossom.js';
 import { setupICSExport, setupICSImport } from './ics-import-export.js';
+import { FilterManager } from './filter.js';
+import { Subscriptions } from './subscriptions.js';
+
+// New Plugin-based Authentication System
+import { AuthManager } from './auth/AuthManager.js';
+import { authRegistry } from './auth/AuthPluginInterface.js';
+import { NostrAuthPlugin } from './auth/NostrAuthPlugin.js';
+
+// Initialize Auth Manager
+const authManager = new AuthManager();
+window.authManager = authManager; // Debug access
 
 const state = {
   events: [],
@@ -22,40 +33,53 @@ const state = {
 };
 
 let els = {};
-// Helper: element used to trigger Bunker connect (may be legacy btn or dropdown menu entry)
-let bunkerTrigger = null;
 let currentView = localStorage.getItem('view') || 'cards';
 let monthView;
 
 function initEls() {
-  els = {
-    grid: document.getElementById('grid'),
-    info: document.getElementById('result-info'),
-    monthSelect: document.getElementById('month-select'),
-    tagSearch: document.getElementById('tag-search'),
-    selectedTags: document.getElementById('selected-tags'),
-    textSearch: document.getElementById('text-search'),
-    btnNew: document.getElementById('btn-new'),
-    btnRefresh: document.getElementById('btn-refresh'),
-    modal: document.getElementById('event-modal'),
-    btnCloseModal: document.getElementById('close-modal'),
-    btnSave: document.getElementById('btn-save'),
-    btnDelete: document.getElementById('btn-delete'),
-    whoami: document.getElementById('whoami'),
-    btnLogin: document.getElementById('btn-login'),
-    btnManual: document.getElementById('btn-manual'),
-    btnNip07: document.getElementById('btn-nip07'),
-    btnLogout: document.getElementById('btn-logout'),
-    // new dropdown/menu elements
-    btnLoginMenu: document.getElementById('btn-login-menu'),
-    loginMenu: document.getElementById('login-menu'),
-    loginMenuNostr: document.getElementById('login-menu-nostr'),
-    loginMenuExtension: document.getElementById('login-menu-extension'),
-    loginMenuBunker: document.getElementById('login-menu-bunker'),
-    themeSelect: document.getElementById('theme-select'),
-    btnICSImport: document.getElementById('btn-ics-import'),
-    btnICSExport: document.getElementById('btn-ics-export'),
-    btnBunker: document.getElementById('btn-bunker'),
+    els = {
+      grid: document.getElementById('event-wall'), // Updated to use event-wall container
+      info: document.getElementById('result-info'),
+     monthSelect: document.getElementById('month-select'),
+     tagSearch: document.getElementById('tag-input'), // Updated to new filter system
+     selectedTags: document.getElementById('selected-tags'),
+     textSearch: document.getElementById('search-input'), // Updated to new filter system
+     btnNew: document.getElementById('btn-new'),
+     btnRefresh: document.getElementById('btn-refresh'),
+     modal: document.getElementById('event-modal'),
+     btnCloseModal: document.getElementById('close-modal'),
+     btnSave: document.getElementById('btn-save'),
+     btnCancelEvent: document.getElementById('btn-cancel-event'),
+     btnDelete: document.getElementById('btn-delete'),
+     whoami: document.getElementById('whoami'),
+     btnLogout: document.getElementById('btn-logout'),
+    
+    // New Sidebar Elements
+    sidebarToggle: document.getElementById('sidebar-toggle'),
+    sidebar: document.getElementById('sidebar'),
+    sidebarClose: document.getElementById('sidebar-close'),
+    sidebarOverlay: document.getElementById('sidebar-overlay'),
+    sidebarIcon: document.getElementById('sidebar-icon'),
+    
+    // Auth buttons in sidebar
+    authNostr: document.getElementById('auth-nostr'),
+    authExtension: document.getElementById('auth-extension'),
+    authBunker: document.getElementById('auth-bunker'),
+    
+    // Settings in sidebar
+    sidebarThemeSelect: document.getElementById('sidebar-theme-select'),
+    sidebarIcsImport: document.getElementById('sidebar-ics-import'),
+    sidebarIcsExport: document.getElementById('sidebar-ics-export'),
+
+  // Subscriptions in sidebar
+  subsList: document.getElementById('subscriptions-list'),
+  subsInput: document.getElementById('subscription-input'),
+  subsAdd: document.getElementById('subscription-add'),
+  subsListSelect: document.getElementById('subs-list-select'),
+  subsShareLink: document.getElementById('subs-share-link'),
+  subsSaveAsOwn: document.getElementById('subs-save-as-own'),
+    
+    // Theme and other elements  
     monthGrid: document.getElementById('month-grid'),
     btnViewCards: document.getElementById('btn-view-cards'),
     btnViewMonth: document.getElementById('btn-view-month'),
@@ -83,49 +107,168 @@ function initEls() {
     filterRow: document.getElementById('filter-row'),
   };
 
-  // Kompatibilitäts-Glue: Falls die alten "legacy" Buttons (auf die bestehende
-  // Event-Handler in js/auth.js hören) nicht im DOM vorhanden sind, erzeugen
-  // wir sie versteckt zur Laufzeit und hängen sie in die auth-Box.
-  // So funktionieren sowohl die Dropdown-Menüs (die .click() auf diese IDs
-  // weiterleiten) als auch bestehende Tests ohne weitere Code-Anpassungen.
-  try {
-    const authBox = document.getElementById('auth-box') || document.body;
-    // Helper: create button only if missing
-    const ensureBtn = (id, text, hidden = true) => {
-      let el = document.getElementById(id);
-      if (!el) {
-        el = document.createElement('button');
-        el.id = id;
-        el.className = 'btn btn-ghost';
-        el.type = 'button';
-        el.style.display = hidden ? 'none' : '';
-        el.textContent = text;
-        authBox.appendChild(el);
-      }
-      return el;
-    };
+  // Create hidden buttons for ICS functionality (needed by setupICSImport/Export)
+  const createHiddenButton = (id) => {
+    let btn = document.getElementById(id);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = id;
+      btn.style.display = 'none';
+      document.body.appendChild(btn);
+    }
+    return btn;
+  };
+  
+  els.btnICSImport = createHiddenButton('btn-ics-import');
+  els.btnICSExport = createHiddenButton('btn-ics-export');
+  
+  // Create hidden theme selector (functionality moved to sidebar)
+  els.themeSelect = createHiddenButton('theme-select');
 
-    // Legacy IDs expected by auth.js
-    els.btnLogin = els.btnLogin || ensureBtn('btn-login', 'Login (legacy)');
-    els.btnManual = els.btnManual || ensureBtn('btn-manual', 'Manual Login (legacy)');
-    els.btnNip07 = els.btnNip07 || ensureBtn('btn-nip07', 'NIP-07 Login (legacy)');
-    // Erzeuge den legacy Bunker-Button ebenfalls versteckt, damit er die UI nicht stört.
-    els.btnBunker = els.btnBunker || ensureBtn('btn-bunker', 'Bunker (legacy)', true);
-  } catch (e) {
-    console.warn('[initEls] could not create legacy buttons:', e);
-  }
+  // Legacy buttons removed - using direct plugin architecture
 }
 
-// Simple toast helper (global small notification)
-function toast(msg, { timeout = 3000, type = 'info' } = {}){
-  try{
-    let el = document.getElementById('app-toast');
-    if(!el){ el = document.createElement('div'); el.id = 'app-toast'; el.className = 'toast'; document.body.appendChild(el); }
-    el.textContent = msg;
-    el.className = 'toast ' + type;
-    el.style.opacity = '1';
-    setTimeout(()=>{ try{ el.style.opacity = '0'; }catch{} }, timeout);
-  }catch(e){ console.log('[toast]', msg); }
+// SIDEBAR
+function setupSidebar() {
+  const { sidebar, sidebarToggle, sidebarClose, sidebarOverlay, sidebarIcon } = els;
+  
+  const openSidebar = () => {
+    sidebar.classList.remove('hidden');
+    sidebarOverlay.classList.remove('hidden');
+    setTimeout(() => {
+      sidebar.classList.add('open');
+      sidebarOverlay.classList.add('open');
+    }, 10);
+  };
+  
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('open');
+    setTimeout(() => {
+      sidebar.classList.add('hidden');
+      sidebarOverlay.classList.add('hidden');
+    }, 300);
+  };
+  
+  // Toggle sidebar
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', openSidebar);
+  }
+  
+  // Close sidebar
+  if (sidebarClose) {
+    sidebarClose.addEventListener('click', closeSidebar);
+  }
+  
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', closeSidebar);
+  }
+  
+  // Escape key closes sidebar
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebar && !sidebar.classList.contains('hidden')) {
+      closeSidebar();
+    }
+  });
+  
+  return { openSidebar, closeSidebar };
+}
+
+// AUTHENTICATION (Direct Plugin Calls)
+async function setupAuthButtons() {
+  const { authNostr, authExtension, authBunker } = els;
+  
+  // Update sidebar auth button states
+  const updateAuthButtons = async () => {
+    const activePlugin = await authManager.getActivePlugin();
+    const activeName = activePlugin?.name;
+    
+    // Update active state
+    [authNostr, authExtension, authBunker].forEach(btn => {
+      if (btn) btn.classList.remove('active');
+    });
+    
+    if (activeName === 'nostr' && authNostr) authNostr.classList.add('active');
+    
+    // Update sidebar visibility based on login state
+    const authSection = document.querySelector('.sidebar-section.auth');
+    const logoutSection = document.querySelector('.sidebar-section.logout-section');
+    
+    if (activePlugin) {
+      // User is logged in - hide auth section, show logout
+      if (authSection) authSection.style.display = 'none';
+      if (logoutSection) logoutSection.classList.remove('hidden');
+    } else {
+      // User is not logged in - show auth section, hide logout
+      if (authSection) authSection.style.display = '';
+      if (logoutSection) logoutSection.classList.add('hidden');
+    }
+    
+    // Update sidebar toggle icon
+    // if (els.sidebarIcon) {
+    //   els.sidebarIcon.textContent = activePlugin ? '👤' : '≡';
+    // }
+  };
+  
+  // Nostr Key Login
+  if (authNostr) {
+    authNostr.addEventListener('click', async () => {
+      const nsec = prompt('Nostr Private Key (nsec) eingeben:');
+      if (!nsec) return;
+      
+      try {
+        const nostrPlugin = authManager.getPlugin('nostr');
+        if (nostrPlugin) {
+          await nostrPlugin.login({ method: 'manual', nsec });
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Nostr Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Nostr login failed:', error);
+        showNotification('Nostr Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  // Browser Extension Login
+  if (authExtension) {
+    authExtension.addEventListener('click', async () => {
+      try {
+        const nostrPlugin = authManager.getPlugin('nostr');
+        if (nostrPlugin) {
+          await nostrPlugin.login({ method: 'nip07' });
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Extension Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Extension login failed:', error);
+        showNotification('Extension Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  // Bunker Login
+  if (authBunker) {
+    authBunker.addEventListener('click', async () => {
+      try {
+        // Use existing bunker UI system
+        const res = await connectBunker('', { target: authBunker });
+        if (res && res.pubkey) {
+          await updateAuthButtons();
+          els.sidebar && setupSidebar().closeSidebar();
+          showNotification('Bunker Login erfolgreich', 'success');
+        }
+      } catch (error) {
+        console.error('Bunker login failed:', error);
+        showNotification('Bunker Login fehlgeschlagen: ' + error.message, 'error');
+      }
+    });
+  }
+  
+  
+  return { updateAuthButtons };
 }
 
 // THEME
@@ -146,162 +289,506 @@ function createTagChip(label) {
 // CRUD
 function openModalForNew(){
   clearForm();
+  els.btnCancelEvent.classList.add('hidden');
   els.btnDelete.classList.add('hidden');
   document.getElementById('modal-title').textContent = 'Neuer Termin';
   els.modal.showModal();
 }
 async function openModalForEdit(evt){
-  // check evt.pubkey against logged-in user
-  const userPubKey = await client.signer.getPublicKey();
-  if(evt.pubkey && client && client.signer && evt.pubkey !== userPubKey){
-    alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+  
+  // Check if user is allowed to edit this event
+  try {
+    // Check current authentication status
+    const activePlugin = await authManager.getActivePlugin();
+    
+    if (activePlugin && await activePlugin.isLoggedIn()) {
+      // Get user's public key from active auth plugin
+      const userPubKey = await activePlugin.getPublicKey();
+      console.log('[DEBUG AUTH] User pubkey from active plugin:', userPubKey); 
+      if (evt.pubkey && evt.pubkey !== userPubKey) {
+        alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+        return;
+      }
+    } else if (client && client.signer) {
+      // Fallback to direct Nostr authentication
+      const userPubKey = await client.signer.getPublicKey();
+      if (evt.pubkey && evt.pubkey !== userPubKey) {
+        alert('Bearbeiten nicht möglich: Sie sind nicht der Autor dieses Termins.');
+        return;
+      }
+    } else {
+      alert('Bearbeiten nicht möglich: Bitte zuerst einloggen.');
+      return;
+    }
+  } catch (error) {
+    console.error('Error checking edit permissions:', error);
+    alert('Fehler beim Überprüfen der Berechtigung.');
     return;
   }
+
   fillFormFromEvent(evt);
+  els.btnCancelEvent.classList.remove('hidden');
   els.btnDelete.classList.remove('hidden');
   document.getElementById('modal-title').textContent = 'Termin bearbeiten';
   els.modal.showModal();
 }
 
-// Upload stub (NIP‑96 if configured)
+// Upload with Blossom integration
 function setupUpload() {
-  const uploadBtn = document.getElementById('btn-upload');
-  if (uploadBtn) on(uploadBtn, 'click', async ()=>{
-    const fileEl = document.getElementById('f-image-file');
-    const file = fileEl?.files?.[0];
-    if(!file){ alert('Bitte zuerst eine Bilddatei wählen.'); return; }
-    try{
-      const up = await uploadToBlossom(file);
-      document.getElementById('f-image').value = up.url;
-      return;
-    }catch(e){ console.warn('Blossom upload failed, trying NIP-96', e); }
-    try{
-      const up2 = await uploadWithNip96(file, client.signer || await client.login());
-      document.getElementById('f-image').value = up2.url;
-      return;
-    }catch(e){ console.warn('NIP-96 upload failed, falling back to DataURL', e); }
-    if(!Config.mediaUploadEndpoint){
-      // Fallback: inline DataURL (nur Demo)
-      const reader = new FileReader();
-      reader.onload = ()=>{ document.getElementById('f-image').value = reader.result; }
-      reader.readAsDataURL(file);
-      return;
-    }
-    try{
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(Config.mediaUploadEndpoint, { method:'POST', body: fd });
-      const json = await res.json();
-      const url = json.url || json.data?.url || json.location;
-      if(url){ document.getElementById('f-image').value = url; }
-      else alert('Upload ok, aber keine URL gefunden. Prüfen Sie den Endpoint.');
-    }catch(err){
-      console.error(err);
-      alert('Upload fehlgeschlagen.');
-    }
-  });
+  const btnSelectFromBlossom = document.getElementById('btn-select-from-blossom');
+  const btnUploadImage = document.getElementById('btn-upload-image');
+  const fileInput = document.getElementById('f-image-file');
+  const imageUrlInput = document.getElementById('f-image');
+  
+  // Button: Open Blossom Modal to select existing image
+  if (btnSelectFromBlossom) {
+    btnSelectFromBlossom.addEventListener('click', async () => {
+      // Open Blossom Modal
+      els.blossomModal.showModal();
+      await refreshBlossom(els.blossomInfo, blossomState);
+      renderBlossom(
+        els.blossomTable, 
+        els.blossomPageInfo, 
+        els.blossomInfo, 
+        els.previewModal, 
+        els.previewBody, 
+        els.previewClose, 
+        blossomState
+      );
+      
+      showNotification('Wählen Sie ein Bild aus und klicken Sie auf "Verwenden"', 'info');
+    });
+  }
+  
+  // Button: Upload new image via Blossom
+  if (btnUploadImage) {
+    btnUploadImage.addEventListener('click', () => {
+      fileInput.click();
+    });
+  }
+  
+  // File input change handler
+  if (fileInput) {
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        showNotification('Bitte wählen Sie eine Bilddatei aus', 'error');
+        fileInput.value = '';
+        return;
+      }
+      
+      // Show progress
+      showNotification('Bild wird hochgeladen...', 'info');
+      
+      try {
+        const { url } = await uploadToBlossom(file);
+        imageUrlInput.value = url;
+        showNotification('✅ Bild erfolgreich hochgeladen!', 'success');
+        
+        console.log('Image uploaded to Blossom:', url);
+      } catch (error) {
+        console.error('Upload failed:', error);
+        showNotification(`❌ Upload fehlgeschlagen: ${error.message}`, 'error');
+      } finally {
+        // Reset file input
+        fileInput.value = '';
+      }
+    });
+  }
 }
 
 // LIST + FILTER
 function applyFilters(){
-  let out = [...state.events];
+   console.log('[App] ApplyFilters aufgerufen mit:', {
+     events: state.events.length,
+     selectedTags: Array.from(state.selectedTags),
+     textSearch: state.textSearch,
+     month: state.month
+   });
 
-  if(state.month){
-    out = out.filter(e=>{
-      const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1] || 0);
-      const d = new Date(startS*1000);
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-      return key===state.month;
-    });
-  }
-  if(state.selectedTags.size){
-    out = out.filter(e=>{
-      const evTags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase());
-      return [...state.selectedTags].every(t=> evTags.includes(t.toLowerCase()));
-    });
-  }
-  if(state.textSearch){
-    out = out.filter(e=>{
-      const title = e.tags.find(t=>t[0]==='title')?.[1].toLowerCase() || '';
-      const tags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase()).join(' ');
-      return (title+' '+tags).includes(state.textSearch);
-    });
-  }
+   let out = [...state.events];
 
-  state.filtered = out;
-  if (els.info) els.info.textContent = `${out.length} Treffer`;
-  renderCurrentView();
-}
+   if(state.month){
+     console.log('[App] Filtere nach Monat:', state.month);
+     out = out.filter(e=>{
+       const startS = Number(e.tags.find(t=>t[0]==='starts')?.[1]||e.tags.find(t=>t[0]==='start')?.[1] || 0);
+       const d = new Date(startS*1000);
+       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+       return key===state.month;
+     });
+   }
+   if(state.selectedTags.size){
+     console.log('[App] Filtere nach Tags:', Array.from(state.selectedTags));
+     out = out.filter(e=>{
+       const evTags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase());
+       return [...state.selectedTags].every(t=> evTags.includes(t.toLowerCase()));
+     });
+   }
+   if(state.textSearch){
+     console.log('[App] Filtere nach Text:', state.textSearch);
+     out = out.filter(e=>{
+       const title = e.tags.find(t=>t[0]==='title')?.[1].toLowerCase() || '';
+       const tags = e.tags.filter(t=>t[0]==='t').map(t=>t[1].toLowerCase()).join(' ');
+       return (title+' '+tags).includes(state.textSearch);
+     });
+   }
+
+   console.log('[App] Gefilterte Events:', out.length);
+   state.filtered = out;
+
+   // FilterManager über Ergebnisse informieren
+   if (window.filterManager) {
+     window.filterManager.updateResultCount(out.length);
+   }
+
+   if (els.info) els.info.textContent = `${out.length} Treffer`;
+   renderCurrentView();
+ }
 
 function renderCurrentView(){
-  // Wähle die Datenquelle: gefiltert, sonst alle
-  const data = state.filtered.length ? state.filtered : state.events;
+   // Wähle die Datenquelle: gefiltert, sonst alle
+   const data = state.filtered.length ? state.filtered : state.events;
+   console.log('[App] RenderCurrentView mit Daten:', data.length, 'Events (gefiltert aus', state.events.length, 'total)');
 
-  if(currentView === 'month'){
-    // Monatsansicht: Grid verstecken, Month zeigen
-    if (els.grid) els.grid.classList.add('hidden');
-    if (els.monthGrid) els.monthGrid.classList.remove('hidden');
-    // (Toolbar/Filter in der Monatsansicht ausblenden)
-    if (els.toolbar) els.toolbar.classList.add('hidden');
-    // Falls ein spezieller Monat gewählt wurde, anwenden
-    if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
-    if (monthView) monthView.render(data);
-  } else {
-    data.sort((a,b)=> {
-      const aS = Number(a.tags.find(t=>t[0]==='starts')?.[1] || 0);
-      const bS = Number(b.tags.find(t=>t[0]==='starts')?.[1] || 0);
-      return aS - bS;
-    });
-    // Kartenansicht: Month verstecken, Grid zeigen
-    if (els.monthGrid) els.monthGrid.classList.add('hidden');
-    if (els.grid) els.grid.classList.remove('hidden');
-    // Filter in Kartenansicht sichtbar
-    if (els.toolbar) els.toolbar.classList.remove('hidden');
-    renderGrid(els.grid, data);
-  }
-}
+   if(currentView === 'month'){
+     console.log('[App] Zeige Monatsansicht');
+     // Monatsansicht: Grid verstecken, Month zeigen
+     if (els.grid) els.grid.classList.add('hidden');
+     if (els.monthGrid) els.monthGrid.classList.remove('hidden');
+     // (Toolbar/Filter in der Monatsansicht ausblenden)
+     if (els.toolbar) els.toolbar.classList.add('hidden');
+     // Falls ein spezieller Monat gewählt wurde, anwenden
+     if(state.month && monthView?.setMonth) monthView.setMonth(state.month);
+     if (monthView) monthView.render(data);
+   } else {
+     console.log('[App] Zeige Kartenansicht mit', data.length, 'Events');
+     data.sort((a,b)=> {
+       const aS = Number(a.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
+       const bS = Number(b.tags.find(t=>t[0]==='start'||t[0]==='starts')?.[1] || 0);
+       return aS - bS;
+     });
+     // Kartenansicht: Month verstecken, Grid zeigen
+     if (els.monthGrid) els.monthGrid.classList.add('hidden');
+     if (els.grid) els.grid.classList.remove('hidden');
+     // Filter in Kartenansicht sichtbar
+     if (els.toolbar) els.toolbar.classList.remove('hidden');
+     renderGrid(els.grid, data);
+   }
+ }
 
 async function refresh(){
-  if (els.info) els.info.textContent = 'Lade…';
-  console.log('[DEBUG] Loading events...');
-  const events = await client.fetchEvents({ sinceDays: 1000 });
-  console.log(`[DEBUG] Loaded ${events.length} events`);
-  state.events = events;
-  buildMonthOptions(els.monthSelect, events);
-  applyFilters();
+   console.log('[App] Refresh aufgerufen');
+   if (els.info) els.info.textContent = 'Lade…';
+   let events = [];
+   try {
+     // Load events from Nostr relays
+     console.log('[App] Lade Events von Nostr Relays');
+     // Build authors list: subscriptions + current logged-in user (if any)
+     let authors = [];
+     let userPk = null;
+     let hasSubscriptions = false;
+     
+     // 1. Check if user is logged in and get their public key
+     try {
+       const activePlugin = await authManager.getActivePlugin();
+       if (activePlugin && await activePlugin.isLoggedIn()) {
+         userPk = await activePlugin.getPublicKey();
+       } else if (client && client.signer && typeof client.signer.getPublicKey === 'function') {
+         userPk = await client.signer.getPublicKey();
+       }
+       console.log('[App] Aktuell angemeldeter User:', userPk);
+     } catch (e) {
+       console.warn('[App] Fehler beim Ermitteln des angemeldeten Users:', e);
+     }
+     
+     // 2. Get authors from subscriptions (if any)
+     try {
+       const subsAuthors = Subscriptions.getAuthors();
+       if (subsAuthors && subsAuthors.length > 0) {
+         authors = [...subsAuthors];
+         hasSubscriptions = true;
+         console.log('[App] Subscription Autoren:', authors);
+       }
+     } catch (e) {
+       console.warn('[App] Fehler beim Laden der Subscription-Autoren:', e);
+     }
+     
+     // 3. Always add logged-in user to authors list (if available)
+     if (userPk) {
+       authors = Array.from(new Set([...(authors||[]), userPk]));
+       console.log('[App] User zur Autorenliste hinzugefügt:', userPk);
+     }
+     
+     // 4. Check for URL parameter ?d= (subscription list ID)
+     let hasSubscriptionListParam = false;
+     try {
+       const urlParams = new URLSearchParams(location.search);
+       const listD = urlParams.get('list') || urlParams.get('d');
+       if (listD) {
+         hasSubscriptionListParam = true;
+         console.log('[App] Subscription Liste aus URL Parameter:', listD);
+       }
+     } catch {}
+     
+     // 5. Fallback to Config.allowedAuthors only if:
+     //    - No user is logged in AND
+     //    - No subscriptions are available AND 
+     //    - No subscription list parameter in URL
+     if (!userPk && !hasSubscriptions && !hasSubscriptionListParam) {
+       if (!authors || authors.length === 0) {
+         authors = (Config.allowedAuthors || []).slice();
+         console.log('[App] Verwende Config.allowedAuthors als Fallback:', authors);
+       }
+     }
+     
+     // 6. Final check - ensure we have at least some authors
+     if (!authors || authors.length === 0) {
+       authors = (Config.allowedAuthors || []).slice();
+       console.log('[App] Finale Fallback-Autoren:', authors);
+     }
+     
+     console.log('[App] fetchEvents finale Autorenliste:', authors);
+     events = await client.fetchEvents({ sinceDays: 1000, authors });
+     console.log('[App] Events geladen:', events.length);
+
+     // Load WordPress events if authenticated via WordPress SSO
+     const activePlugin = await authManager.getActivePlugin();
+
+   } catch (err) {
+     console.error('refresh failed:', err);
+     if (els.info) els.info.textContent = 'Fehler beim Laden.';
+   }
+   console.log('[App] UpdateData mit Events:', events.length);
+   updateData(events);
+ }
+
+// Show general notification
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  const colors = {
+    success: '#4CAF50',
+    error: '#f44336', 
+    warning: '#ff9800',
+    info: '#2196F3'
+  };
+  
+  notification.style.cssText = `
+    position: fixed; bottom: 20px; right: 20px; z-index: 10000;
+    background: ${colors[type] || colors.info}; color: white; padding: 15px 20px;
+    border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    font-family: system-ui, sans-serif; font-size: 14px;
+  `;
+  
+  const icons = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  };
+  
+  notification.innerHTML = `${icons[type] || icons.info} ${message}`;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  }, 5000);
+}
+
+function updateData(events) {
+   console.log('[App] UpdateData mit Events:', events.length);
+   state.events = events;
+   window.allEvents = events; // Für FilterManager verfügbar machen
+   buildMonthOptions(els.monthSelect, events);
+
+   // FilterManager über neue Events informieren
+   if (window.filterManager) {
+     console.log('[App] Lade Tags für FilterManager');
+     window.filterManager.loadTags();
+   }
+
+   applyFilters();
+  }
+
+// Initialize Authentication Plugin System
+async function initializeAuthPlugins() {
+  try {
+    console.log('[Auth] Initializing auth plugin system...');
+    
+    // Register Nostr Auth Plugin (standard Nostr authentication)
+    const nostrPlugin = new NostrAuthPlugin(client);
+    authRegistry.register('nostr', nostrPlugin);
+    
+    // Initialize the AuthManager (it will automatically detect and load WordPress plugin if available)
+    await authManager.initialize();
+    
+    console.log('[Auth] Auth plugins registered successfully');
+    console.log('[Auth] Available plugins:', authRegistry.getAll().map(p => p.name));
+    
+    // Check if any plugin is already authenticated
+    const activePlugin = await authManager.getActivePlugin();
+    if (activePlugin) {
+      console.log('[Auth] Active plugin detected:', activePlugin.name);
+    }
+    
+  } catch (error) {
+    console.error('[Auth] Failed to initialize auth plugins:', error);
+  }
 }
 
 // DOM ready und Setup
-document.addEventListener('DOMContentLoaded', () => {
-  initEls();
-  
-  // MonthView initialisieren (vor View-Setup)
-  monthView = new MonthView(els.monthGrid);
-  
-  // Theme
-  applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
-  on(els.themeSelect, 'change', ()=> applyTheme(els.themeSelect.value));
-  
-  // Module Setup
-  setupAuthUI(els.btnLogin, els.btnLogout, els.btnBunker, els.btnManual, els.btnNip07, els.whoami, els.btnNew, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+document.addEventListener('DOMContentLoaded', async () => {
+   console.log('[App] DOMContentLoaded - Initialisiere App');
+   initEls();
 
-  // Determine the element that should trigger Bunker connection.
-  // The legacy #btn-bunker may be removed from the DOM; prefer it if present,
-  // otherwise use the dropdown menu item (#login-menu-bunker) as the trigger.
-  bunkerTrigger = els.btnBunker || els.loginMenuBunker || null;
+   // MonthView initialisieren (vor View-Setup)
+   monthView = new MonthView(els.monthGrid);
 
-  if (bunkerTrigger) {
-    setupBunkerUI(bunkerTrigger, async (res) => {
-      if (res && res.pubkey && els.whoami) {
-        await updateWhoami(els.whoami, res.method || 'nip46', res.pubkey);
-      }
-      updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu });
+   // Theme (only sidebar theme selector now)
+   applyTheme(localStorage.getItem('calendar_theme') || Config.defaultTheme);
+
+   // Initialize Auth Plugins (includes WordPress SSO check)
+   await initializeAuthPlugins();
+  
+  // Setup New Sidebar System
+  const sidebarControls = setupSidebar();
+  const authControls = await setupAuthButtons();
+  
+  // Setup AuthManager UI (minimal - just whoami and logout)
+  await authManager.setupUI({
+    whoami: els.whoami,
+    btnLogout: els.btnLogout,
+    btnNew: els.btnNew
+  }, async () => {
+    console.log('[Auth] Auth state changed, updating UI...');
+    await authControls.updateAuthButtons();
+  });
+  
+  // Setup sidebar theme selector (only theme control now)
+  if (els.sidebarThemeSelect) {
+    els.sidebarThemeSelect.value = localStorage.getItem('calendar_theme') || Config.defaultTheme;
+    els.sidebarThemeSelect.addEventListener('change', () => {
+      applyTheme(els.sidebarThemeSelect.value);
     });
-  } else {
-    console.debug('[App] kein Bunker-Trigger im DOM gefunden; Bunker-Connect disabled');
+  }
+  
+  // Setup sidebar import/export buttons
+  if (els.sidebarIcsImport && els.btnICSImport) {
+    els.sidebarIcsImport.addEventListener('click', () => {
+      els.btnICSImport.click();
+      sidebarControls.closeSidebar();
+    });
+  }
+  
+  if (els.sidebarIcsExport && els.btnICSExport) {
+    els.sidebarIcsExport.addEventListener('click', () => {
+      els.btnICSExport.click();
+      sidebarControls.closeSidebar();
+    });
+  }
+  
+  // Initial auth button state update
+  await authControls.updateAuthButtons();
+
+  // Initialize Subscriptions manager (after sidebar exists)
+  await Subscriptions.init({
+    listEl: els.subsList,
+    inputEl: els.subsInput,
+    addBtn: els.subsAdd
+  });
+  // Listen-Auswahl (Dropdown) füllen bei Updates
+  window.addEventListener('subscriptions-lists-updated', (ev) => {
+    const lists = ev.detail?.lists || [];
+    const sel = els.subsListSelect;
+    if (!sel) return;
+    const currentD = Subscriptions.listConfig?.d;
+    sel.innerHTML = '<option value="">–</option>' + lists.map(l => {
+      const label = l.name || l.d;
+      const selected = (l.d === currentD) ? ' selected' : '';
+      return `<option value="${encodeURIComponent(l.d)}"${selected}>${label}</option>`;
+    }).join('');
+  });
+
+  // Dropdown: Liste wechseln
+  if (els.subsListSelect) {
+    els.subsListSelect.addEventListener('change', async (e) => {
+      const d = decodeURIComponent(e.target.value || '');
+      if (!d) return;
+      await Subscriptions.setActiveListD(d);
+    });
   }
 
-  setupBunkerEvents(els.whoami, () => updateAuthUI({ btnNew: els.btnNew, btnLogin: els.btnLogin, btnLogout: els.btnLogout, btnBunker: els.btnBunker, btnManual: els.btnManual, btnNip07: els.btnNip07, btnLoginMenu: els.btnLoginMenu }));
+  // Teilen-Button: URL mit d & owner kopieren
+  if (els.subsShareLink) {
+    els.subsShareLink.addEventListener('click', async () => {
+      try {
+        const d = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+        // owner = Owner der aktuell ausgewählten Liste (foreign oder self)
+        let ownerHex = Subscriptions?._listOwnerHex || client?.pubkey || null;
+        let npub = null;
+        if (ownerHex) {
+          try { npub = window.hexToNpub ? window.hexToNpub(ownerHex) : null; } catch {}
+        }
+        const url = new URL(location.href);
+        // Nur gewünschte Parameter setzen/ersetzen
+        url.searchParams.set('d', d);
+        if (npub) url.searchParams.set('owner', npub); else url.searchParams.delete('owner');
+        await navigator.clipboard.writeText(url.toString());
+        showNotification('Link kopiert', 'success');
+      } catch (e) {
+        console.warn('Share link failed:', e);
+        showNotification('Konnte Link nicht kopieren', 'error');
+      }
+    });
+  }
+
+  // Als eigene Liste speichern: owner auf self setzen und publishen
+  if (els.subsSaveAsOwn) {
+    els.subsSaveAsOwn.addEventListener('click', async () => {
+      try {
+        if (!client?.pubkey) { alert('Bitte zuerst einloggen.'); return; }
+        // owner zurücksetzen
+        Subscriptions._listOwnerHex = null;
+  try { localStorage.removeItem('nostr_calendar_list_owner'); } catch {}
+        // optional: d und Name erfragen
+        const currentD = Subscriptions.listConfig?.d || 'nostr-calendar:subscriptions';
+        const d = prompt('Listen-ID (d) wählen/setzen:', currentD) || currentD;
+        const name = prompt('Name der Liste (optional):', Subscriptions.listConfig?.name || 'Meine Liste');
+        await Subscriptions.setActiveListD(d, { name: name || null });
+        await Subscriptions.saveToNip51();
+        // Nach Publish Dropdown aktualisieren
+        try { await Subscriptions.listAllNip51Lists(client.pubkey); } catch {}
+        showNotification('Liste als eigene gespeichert.', 'success');
+      } catch (e) {
+        console.warn('Save as own failed:', e);
+        showNotification('Speichern fehlgeschlagen', 'error');
+      }
+    });
+  }
+
+  // Sync subscriptions with contacts when auth changes
+  if (window.authManager) {
+    try {
+      window.authManager.onChange(async () => {
+        try { await Subscriptions.handleAuthChange(); } catch (e) { console.warn('Subscriptions.handleAuthChange error', e); }
+      });
+      // Initial check in case already logged in
+      try { await Subscriptions.handleAuthChange(); } catch {}
+    } catch {}
+  }
+
+  // React on subscription changes -> refresh event list
+  window.addEventListener('subscriptions-changed', async () => {
+    try {
+      await refresh();
+    } catch (e) { console.warn('refresh after subscriptions-changed failed', e); }
+  });
 
   setupBlossomUI(
     els.blossomModal, els.blossomClose, els.blossomRefresh,
@@ -316,32 +803,51 @@ document.addEventListener('DOMContentLoaded', () => {
   setupICSExport(els.btnICSExport, () => state);
   setupICSImport(els.btnICSImport, client, fillFormFromEvent, els.progressModal, els.progressBar, els.progressText, els.modal, clearForm, setEditableChips);
 
-  // Filter Events
-  on(els.tagSearch, 'keydown', (e)=>{
-    if(e.key==='Enter'){
-      e.preventDefault();
-      const v = els.tagSearch.value.trim();
-      if(!v) return;
-      if(!state.selectedTags.has(v)){
-        state.selectedTags.add(v);
-        els.selectedTags.appendChild(createTagChip(v));
-        applyFilters();
-      }
-      els.tagSearch.value='';
+  // Filter Events - Integration mit dem neuen FilterManager
+  window.addEventListener('filter-change', (e) => {
+    console.log('[App] Filter-Change Event empfangen:', e.detail);
+    const { type, value, selectedTags } = e.detail;
+
+    // Update state basierend auf Filter-Änderungen
+    switch (type) {
+      case 'tag':
+        // selectedTags enthält alle aktuell ausgewählten Tags
+        state.selectedTags = new Set(selectedTags || []);
+        console.log('[App] Tags aktualisiert:', Array.from(state.selectedTags));
+        break;
+      case 'search':
+        state.textSearch = value.toLowerCase();
+        console.log('[App] Suchtext aktualisiert:', state.textSearch);
+        break;
+      case 'month':
+        state.month = value;
+        console.log('[App] Monat aktualisiert:', state.month);
+        break;
+      case 'reset':
+        state.selectedTags.clear();
+        state.textSearch = '';
+        state.month = '';
+        console.log('[App] Filter zurückgesetzt');
+        break;
     }
+
+    console.log('[App] Apply Filters mit State:', {
+      selectedTags: Array.from(state.selectedTags),
+      textSearch: state.textSearch,
+      month: state.month
+    });
+    applyFilters();
   });
-  on(els.textSearch, 'input', ()=>{ state.textSearch = els.textSearch.value.toLowerCase(); applyFilters(); });
-  on(els.monthSelect, 'change', ()=>{ state.month = els.monthSelect.value; applyFilters(); });
 
   // CRUD Events
   window.addEventListener('edit-event', (e)=> openModalForEdit(e.detail.event));
   on(els.btnNew, 'click', async ()=>{
-    if(!isLoggedIn()){
-      alert('Bitte zuerst einloggen (NIP-07 oder Bunker).');
+    const loggedIn = await authManager.isLoggedIn();
+    if (!loggedIn) {
+      alert('Bitte zuerst einloggen.');
       return;
     }
-    // isLoggedIn() ist true, signer existiert
-    const userPubKey = await client.signer.getPublicKey();
+    
     openModalForNew();
   });
   on(els.btnRefresh, 'click', async ()=>{
@@ -359,48 +865,147 @@ document.addEventListener('DOMContentLoaded', () => {
   on(els.btnSave, 'click', async (e)=>{
     e.preventDefault();
     const data = getFormData();
-    if(!data.title || !data.starts || !data.ends){
+    if(!data.title || !data.start || !data.end){
       alert('Titel, Beginn und Ende sind Pflichtfelder.');
       return;
     }
+    console.log('[App] FormData:', data);
+      
     try{
-      console.log('[DEBUG] Publishing event...', data);
-      const { signed, d, ok } = await client.publish(data);
+      // Wenn es ein existierendes Event ist (ID vorhanden), stelle sicher dass der d-Tag erhalten bleibt
+
+      if (data.id && !data.d) {
+        // Versuche, den d-Tag aus dem ursprünglichen Event zu holen
+        const originalEvent = state.events.find(e => e.id === data.id);
+        if (originalEvent) {
+          const originalD = originalEvent.tags.find(t => t[0] === 'd')?.[1];
+          if (originalD) {
+            data.d = originalD;
+            console.log('[App] Original d-Tag für Event-Update beibehalten:', originalD);
+          }
+        }
+      }
+      // Create event using the active authentication plugin
+      const result = await authManager.createEvent(data);
+      
       els.modal.close();
-      if(ok) toast('Termin erfolgreich veröffentlicht', { type: 'success' });
-      else toast('Termin veröffentlicht (keine Relay-Bestätigung)', { type: 'warn' });
       await refresh();
     }catch(err){
       console.error(err);
       alert('Veröffentlichen fehlgeschlagen. Details in der Konsole.');
     }
   });
-  on(els.btnDelete, 'click', async ()=>{
+  on(els.btnCancelEvent, 'click', async ()=>{
     const data = getFormData();
-    // Prefer explicit delete by event id (hex) to create kind-5 tombstone
-    const evId = data.id || null;
-    if (evId) {
-      try{
-        const res = await client.deleteEvent(evId);
-        els.modal.close();
-        if(res.ok) toast('Termin gelöscht', { type: 'success' });
-        else toast('Termin gelöscht (keine Relay-Bestätigung)', { type: 'warn' });
+    data.status = 'cancelled';
+    
+    // Wenn es ein existierendes Event ist (ID vorhanden), stelle sicher dass der d-Tag erhalten bleibt
+    if (data.id && !data.d) {
+      // Versuche, den d-Tag aus dem ursprünglichen Event zu holen
+      const originalEvent = state.events.find(e => e.id === data.id);
+      if (originalEvent) {
+        const originalD = originalEvent.tags.find(t => t[0] === 'd')?.[1];
+        if (originalD) {
+          data.d = originalD;
+          console.log('[App] Original d-Tag für Event-Cancellation beibehalten:', originalD);
+        }
+      }
+    }
+    
+    try{
+      // Use AuthManager for event cancellation
+      await authManager.createEvent(data);
+      els.modal.close();
+      try {
         await refresh();
-      }catch(err){ console.error(err); alert('Löschen fehlgeschlagen.'); }
+      } catch (err) {
+        console.error('Refresh after cancel failed:', err);
+      }
+    }catch(err){
+      console.error(err);
+      alert('Update fehlgeschlagen.');
+    }
+  });
+
+  on(els.btnDelete, 'click', async ()=>{
+    const id = document.getElementById('f-id').value.trim();
+    if (!id) {
+      alert('Kein Event zum Löschen.');
       return;
     }
+    if (!confirm('Wirklich löschen? Dies entfernt den Termin dauerhaft aus Ihrem Kalender.')) return;
 
-    // Fallback: wenn keine event-id vorhanden, verwende d-tag und markiere als 'cancelled'
-    const dTag = data.d || null;
-    if(!dTag){ alert('Kein Event-Identifier gefunden (weder id noch d-tag).'); return; }
-    data.status = 'cancelled';
-    try{
-      const r = await client.publish(data);
+    try {
+      // Use AuthManager to delete event through the active auth plugin
+      if (authManager) {
+        const result = await authManager.deleteEvent(id);
+        if (result.success) {
+          els.modal.close();
+          try {
+            await refresh();
+            showNotification('Event erfolgreich gelöscht', 'success');
+          } catch (err) {
+            console.error('Refresh after delete failed:', err);
+            showNotification('Event gelöscht, aber Aktualisierung fehlgeschlagen', 'warning');
+          }
+          return;
+        } else {
+          throw new Error(result.error || 'Delete failed through AuthManager');
+        }
+      }
+    } catch (e) {
+      console.warn('AuthManager delete failed, falling back to direct Nostr client:', e);
+      // Don't show error notification here, let the fallback try first
+    }
+
+    // Fallback to direct Nostr client delete
+    const evt = {
+      kind: 5,
+      content: '',
+      tags: [['e', id]],
+      created_at: Math.floor(Date.now() / 1000)
+    };
+
+    try {
+      if (!client.signer) throw new Error('Nicht eingeloggt.');
+      await client.initPool();
+      const signed = await client.signer.signEvent(evt);
+
+      const pubs = client.pool.publish(Config.relays, signed);
+      if (Array.isArray(pubs)) {
+        const timeout = 3000;
+        const promises = pubs.map(pub => {
+          if (!pub || typeof pub.on !== 'function') return Promise.resolve();
+          return new Promise(resolve => {
+            const timer = setTimeout(() => resolve(), timeout);
+            const onOk = () => { clearTimeout(timer); resolve(true); };
+            const onFailed = () => { clearTimeout(timer); resolve(false); };
+            try {
+              pub.on('ok', onOk);
+              pub.on('failed', onFailed);
+            } catch (e) {
+              clearTimeout(timer);
+              resolve();
+            }
+          });
+        });
+        await Promise.race(promises);
+        await Promise.allSettled(promises);
+      }
+
       els.modal.close();
-      if(r.ok) toast('Termin aktualisiert', { type: 'success' });
-      else toast('Termin aktualisiert (keine Relay-Bestätigung)', { type: 'warn' });
-      await refresh();
-    }catch(err){ console.error(err); alert('Update fehlgeschlagen.'); }
+      try {
+        await refresh();
+        showNotification('Event erfolgreich gelöscht', 'success');
+      } catch (err) {
+        console.error('Refresh after delete failed:', err);
+        showNotification('Event gelöscht, aber Aktualisierung fehlgeschlagen', 'warning');
+      }
+      // alert('Termin gelöscht.');
+    } catch (err) {
+      console.error(err);
+      showNotification('Löschen fehlgeschlagen: ' + (err.message || err), 'error');
+    }
   });
 
   // Upload
@@ -408,104 +1013,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // View Events
   function setView(name){
+    els.btnViewCards.classList.toggle('active', name === 'cards');
+    els.btnViewMonth.classList.toggle('active', name === 'month');
     currentView = (name === 'month') ? 'month' : 'cards';
     localStorage.setItem('view', currentView);
+
     renderCurrentView();
   }
   on(els.btnViewCards, 'click', ()=> setView('cards'));
   on(els.btnViewMonth, 'click', ()=> setView('month'));
   setView(localStorage.getItem('view') || 'cards');
 
-
-  // Auto-Reconnect
-  autoReconnectBunker(els.whoami, () => updateAuthUI({
-    btnNew: els.btnNew,
-    btnLogin: els.btnLogin,
-    btnLogout: els.btnLogout,
-    btnBunker: els.btnBunker,
-    btnManual: els.btnManual,
-    btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu
-  }));
-  initNip46FromUrl(els.whoami, () => updateAuthUI({
-    btnNew: els.btnNew,
-    btnLogin: els.btnLogin,
-    btnLogout: els.btnLogout,
-    btnBunker: els.btnBunker,
-    btnManual: els.btnManual,
-    btnNip07: els.btnNip07,
-    btnLoginMenu: els.btnLoginMenu
-  }));
+  // Auto-Reconnect for Bunker (simplified)
+  setupBunkerEvents(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
   
-  // Dropdown behavior: toggle menu and forward menu item clicks to existing legacy buttons
-  if (els.btnLoginMenu && els.loginMenu) {
-    on(els.btnLoginMenu, 'click', () => {
-      // Wenn bereits eingeloggt: Dropdown verbergen (soll nicht sichtbar sein)
-      if (typeof isLoggedIn === 'function' && isLoggedIn()) {
-        els.loginMenu.classList.add('hidden');
-        return;
-      }
-      // Toggle visibility
-      els.loginMenu.classList.toggle('hidden');
-
-      // Position correction: stelle sicher, dass das Menü nicht aus dem Viewport rechts herausragt.
-      try {
-        els.loginMenu.style.left = ''; // reset
-        els.loginMenu.style.right = '';
-        const btnRect = els.btnLoginMenu.getBoundingClientRect();
-        const menuRect = els.loginMenu.getBoundingClientRect();
-        const viewportW = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-        // Default menu left is btn.left; wenn menu über den Rand hinausgeht, setze right:0 und linksunset.
-        if (btnRect.left + menuRect.width > viewportW - 8) { // 8px margin
-          els.loginMenu.style.left = 'auto';
-          // positioniere so, dass das Menü am rechten Rand des Viewports anliegt
-          els.loginMenu.style.right = '8px';
-        } else {
-          // sichere Positionierung nahe am Button (falls CSS verändert wurde)
-          els.loginMenu.style.left = `${btnRect.left}px`;
-          els.loginMenu.style.right = 'auto';
-        }
-      } catch (e) {
-        // ignore positioning errors
-      }
-    });
-    // Close menu when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!els.btnLoginMenu.contains(e.target) && !els.loginMenu.contains(e.target)) {
-        els.loginMenu.classList.add('hidden');
-      }
-    });
-    // Menu item handlers: trigger the (hidden) legacy buttons to preserve logic
-    // Use a dispatched MouseEvent first (better with hidden elements / frameworks)
-    const triggerClick = (btn) => {
-      try {
-        if (!btn) return;
-        const ev = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-        btn.dispatchEvent(ev);
-      } catch (e) {
-        try { btn?.click?.(); } catch {}
-      }
-    };
-
-    if (els.loginMenuNostr) on(els.loginMenuNostr, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnManual); });
-    if (els.loginMenuExtension) on(els.loginMenuExtension, 'click', () => { els.loginMenu.classList.add('hidden'); triggerClick(els.btnNip07); });
-    if (els.loginMenuBunker) on(els.loginMenuBunker, 'click', () => {
-      els.loginMenu.classList.add('hidden');
-      // Avoid recursive clicks: only forward to a different trigger element.
-      if (bunkerTrigger && bunkerTrigger !== els.loginMenuBunker) {
-        try { triggerClick(bunkerTrigger); } catch(e){ console.warn('bunkerTrigger click failed', e); }
-      } else if (els.btnBunker) {
-        // Fallback to legacy button if present
-        try { triggerClick(els.btnBunker); } catch(e){ console.warn('btnBunker click failed', e); }
-      } else {
-        console.debug('[App] Kein separater Bunker-Trigger gefunden; Bunker connect nicht ausgeführt.');
-      }
-    });
-  }
+  // Auto-reconnect existing bunker connections
+  autoReconnectBunker(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
+  
+  initNip46FromUrl(els.whoami, async () => {
+    await authControls.updateAuthButtons();
+  });
 
   // Initial Setup
   setupMdToolbar();
-  // setupTagInput();
+  setupTagInput();
+  setupFormSubmitHandler();
 
+  // Initialize Detail Modal System
+  initDetailSystem();
+
+  // Event Listener for Tag Filtering from Detail Modal
+  window.addEventListener('filter-by-tag', (e) => {
+    const tag = e.detail.tag;
+    if (tag && !state.selectedTags.has(tag)) {
+      state.selectedTags.add(tag);
+      els.selectedTags.appendChild(createTagChip(tag));
+      applyFilters();
+    }
+  });
+
+  console.log('[App] Initialisierung abgeschlossen - starte Refresh');
   refresh().catch(console.error);
 });

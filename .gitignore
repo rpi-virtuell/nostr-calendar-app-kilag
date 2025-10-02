@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+dist/
+.env
+.history/
+.vscode/
+.DS_Store
+wordpress_environment_snippets/
