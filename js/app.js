@@ -3,7 +3,7 @@ import { client } from './nostr.js';
 window.nostrClient = client; // Debug-Haken für die Konsole
 import { renderGrid, buildMonthOptions } from './views/list.js';
 import { initDetailSystem } from './views/detail.js';
-import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips } from './views/form.js';
+import { fillFormFromEvent, clearForm, getFormData, setupMdToolbar, setupTagInput, setEditableChips, setupFormSubmitHandler } from './views/form.js';
 import { mdToHtml } from './utils.js';
 import { MonthView } from './views/calendar.js';
 import { uploadToBlossom, listBlossom, deleteFromBlossom } from './blossom.js';
@@ -295,6 +295,7 @@ function openModalForNew(){
   els.modal.showModal();
 }
 async function openModalForEdit(evt){
+  
   // Check if user is allowed to edit this event
   try {
     // Check current authentication status
@@ -868,7 +869,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       alert('Titel, Beginn und Ende sind Pflichtfelder.');
       return;
     }
+    console.log('[App] FormData:', data);
+      
     try{
+      // Wenn es ein existierendes Event ist (ID vorhanden), stelle sicher dass der d-Tag erhalten bleibt
+
+      if (data.id && !data.d) {
+        // Versuche, den d-Tag aus dem ursprünglichen Event zu holen
+        const originalEvent = state.events.find(e => e.id === data.id);
+        if (originalEvent) {
+          const originalD = originalEvent.tags.find(t => t[0] === 'd')?.[1];
+          if (originalD) {
+            data.d = originalD;
+            console.log('[App] Original d-Tag für Event-Update beibehalten:', originalD);
+          }
+        }
+      }
       // Create event using the active authentication plugin
       const result = await authManager.createEvent(data);
       
@@ -882,6 +898,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   on(els.btnCancelEvent, 'click', async ()=>{
     const data = getFormData();
     data.status = 'cancelled';
+    
+    // Wenn es ein existierendes Event ist (ID vorhanden), stelle sicher dass der d-Tag erhalten bleibt
+    if (data.id && !data.d) {
+      // Versuche, den d-Tag aus dem ursprünglichen Event zu holen
+      const originalEvent = state.events.find(e => e.id === data.id);
+      if (originalEvent) {
+        const originalD = originalEvent.tags.find(t => t[0] === 'd')?.[1];
+        if (originalD) {
+          data.d = originalD;
+          console.log('[App] Original d-Tag für Event-Cancellation beibehalten:', originalD);
+        }
+      }
+    }
+    
     try{
       // Use AuthManager for event cancellation
       await authManager.createEvent(data);
@@ -1010,6 +1040,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initial Setup
   setupMdToolbar();
+  setupTagInput();
+  setupFormSubmitHandler();
 
   // Initialize Detail Modal System
   initDetailSystem();

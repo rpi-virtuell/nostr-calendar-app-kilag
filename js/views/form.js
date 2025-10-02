@@ -182,6 +182,10 @@ export function setEditableChips(tags){
 export function getFormData(){
   const chips = [...document.querySelectorAll('#chips-edit .chip')].map(c=>c.childNodes[0].nodeValue.trim());
   const content = quillToMarkdown();
+  // generate random d-tag if not present
+  const dtag = `d${uid()}`;
+  if(!document.getElementById('f-dtag').value.trim()) document.getElementById('f-dtag').value = dtag;
+
   return {
     title: document.getElementById('f-title').value.trim(),
     start: localInputToSecs(document.getElementById('f-start').value),
@@ -237,20 +241,74 @@ export function setupMdToolbar(){
   });
 }
 
+// Globaler Formular-Submit-Handler, der verhindert, dass das Formular abgesendet wird,
+// wenn der Fokus im Tag-Eingabefeld ist
+export function setupFormSubmitHandler() {
+  const form = document.getElementById('event-form');
+  const tagInput = document.getElementById('f-tags');
+  
+  if (!form || !tagInput) {
+    console.warn('[form] Form oder Tag-Input nicht gefunden');
+    return;
+  }
+  
+  form.addEventListener('submit', (e) => {
+    // Prüfen, ob der Fokus im Tag-Eingabefeld ist
+    if (document.activeElement === tagInput) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[form] Formular-Submit verhindert, da Fokus im Tag-Eingabefeld');
+      return false;
+    }
+  });
+}
+
 export function setupTagInput(){
   const input = document.getElementById('f-tags');
+  if (!input) {
+    console.warn('[form] Tag input element not found');
+    return;
+  }
+  
   input.addEventListener('keydown', (e)=>{
     if(e.key==='Enter'){
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
       const v = input.value.trim();
       if(!v) return;
+      
       const chip = document.createElement('span');
       chip.className='chip';
       chip.textContent=v;
-      const x = document.createElement('button'); x.textContent='x'; x.addEventListener('click', ()=>chip.remove());
+      const x = document.createElement('button');
+      x.textContent='x';
+      x.title='Entfernen';
+      x.addEventListener('click', ()=>chip.remove());
       chip.appendChild(x);
-      document.getElementById('chips-edit').appendChild(chip);
+      
+      const chipsContainer = document.getElementById('chips-edit');
+      if (chipsContainer) {
+        chipsContainer.appendChild(chip);
+      } else {
+        console.warn('[form] Chips container not found');
+      }
+      
       input.value='';
+      input.focus(); // Fokus zurück zum Eingabefeld
+      
+      return false; // Zusätzliche Sicherheit
+    }
+  });
+  
+  // Verhindere auch das Formular-Submit, wenn das Input-Field Teil eines Formulars ist
+  input.addEventListener('keypress', (e)=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return false;
     }
   });
 }
