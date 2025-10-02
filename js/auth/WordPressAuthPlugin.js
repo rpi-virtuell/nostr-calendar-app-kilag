@@ -88,8 +88,8 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         content: eventData.content || ''
       };
       console.debug('[WordPressAuth] sending event to:', nostrEvent, window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io']) ;
-      // WordPress-Signierung über nostr-app.js
-      const result = await nostr_send(
+      // WordPress-Signierung über nostr-app.js 
+      const result = await window.WP_NostrTools.nostr_send(
         nostrEvent,
         'user', // WordPress-Benutzer-Schlüssel
         window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io'],
@@ -133,7 +133,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         content: 'Event gelöscht'
       };
 
-      const result = await nostr_send(
+      const result = await window.WP_NostrTools.nostr_send(
         deleteEvent,
         'user',
         window.NostrSignerConfig?.defaultRelays || ['wss://relay.damus.io'],
@@ -234,7 +234,7 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
       }else{
         // fetch from /me endpoint
         console.log('[WordPressAuth] Fetching session data from /me');
-        const userData = await nostr_me();
+        const userData = await window.WP_NostrTools.nostr_me();
         console.log('[WordPressAuth] Fetched session data from /me:', userData);
         if (userData) {
           const data = {
