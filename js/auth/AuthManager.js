@@ -173,6 +173,10 @@ export class AuthManager {
    * Refresh the active plugin by checking all registered plugins
    */
   async refreshActivePlugin() {
+    // Debug: Show all active plugins with priorities
+    const allActive = await authRegistry.getActive();
+    console.debug('[AuthManager] Active plugins:', allActive.map(p => `${p.name} (priority: ${p.getPriority()})`).join(', '));
+  
     const primary = await authRegistry.getPrimary();
     
     if (primary !== this.currentPlugin) {
@@ -180,7 +184,7 @@ export class AuthManager {
       this.currentPlugin = primary;
       
       if (oldPlugin !== primary) {
-        console.log(`[AuthManager] Active plugin changed: ${oldPlugin?.name || 'none'} → ${primary?.name || 'none'}`);
+        console.log(`[AuthManager] Active plugin changed: ${oldPlugin?.name || 'none'} → ${primary?.name || 'none'}${primary ? ` (priority: ${primary.getPriority()})` : ''}`);
         await this.onAuthChange();
       }
     }
@@ -207,11 +211,20 @@ export class AuthManager {
    * Update UI based on current auth state
    */
   async updateUI() {
+    console.log('[AuthManager] Updating UI', this.uiElements);
+    console.log('[AuthManager] UI elements keys:', Object.keys(this.uiElements)); 
+    console.log('[AuthManager] UI current plugin:', this.currentPlugin);
+    
+    // Check if UI elements are available
+    if (!this.uiElements || Object.keys(this.uiElements).length === 0) {
+      console.debug('[AuthManager] UI elements not yet initialized, skipping UI update');
+      return;
+    }
     if (this.currentPlugin) {
       await this.currentPlugin.updateAuthUI(this.uiElements);
       const sidebarwhoami = document.querySelector('#sidebar-whoami');
-      if (sidebarwhoami) {
-        sidebarwhoami.textContent = this.uiElements.whoami.textContent;
+      if (sidebarwhoami && this.uiElements.whoami) {
+        sidebarwhoami.innerHTML = this.uiElements.whoami.innerHTML || '';
       }
       
       const is_logged_in = await this.getPublicKey();
@@ -241,6 +254,12 @@ export class AuthManager {
    * Update UI for no authentication state
    */
   updateNoAuthUI() {
+    // Check if UI elements are available
+    if (!this.uiElements || Object.keys(this.uiElements).length === 0) {
+      console.debug('[AuthManager] UI elements not yet initialized, skipping no-auth UI update');
+      return;
+    }
+    
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = this.uiElements;
 
     if (whoami) whoami.textContent = '';

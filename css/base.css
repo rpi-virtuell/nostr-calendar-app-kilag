@@ -294,7 +294,7 @@ a{color:var(--color-primary);text-decoration:none}
     max-width: 80px;
   }
 }
-.whoami{
+.whoami{ 
   font-size: 15px;
   color: var(--muted);
   border: 1px solid var(--chip-border);
@@ -302,6 +302,9 @@ a{color:var(--color-primary);text-decoration:none}
   border-radius: var(--radius-md);
   min-width: 140px;
   min-height: 34px;
+  position: absolute;
+  right: 70px;
+  top: 22px;
 }
 #btn-logout{
   border: none;

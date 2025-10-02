@@ -1,12 +1,6 @@
 // js/auth/WordPressAuthPlugin.js
 // WordPress SSO authentication plugin
 
-if(window.WP_NostrTools){
-  const nostr_send = window.WP_NostrTools?.nostr_send;
-  const nostr_me = window.WP_NostrTools?.nostr_me;
-} else {
-  console.error('WP_NostrTools is not available. Make sure nostr-app.js is loaded from WP Plugin NostrSigner Wrapper Plugin - > App Wrapper');
-}
 import { AuthPluginInterface } from './AuthPluginInterface.js';
 import { client } from '../nostr.js';
 
@@ -200,8 +194,13 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
 
   
   async updateAuthUI(elements) {
+    // Check if elements are provided
+    if (!elements) {
+      console.debug('[WordPressAuth] No UI elements provided, skipping UI update');
+      return;
+    }
+    
     const { whoami, btnLogin, btnLogout, btnNew, btnLoginMenu } = elements;
-
 
     if (this.currentSession) {
       console.log('[WordPressAuth] Logged in via WordPress SSO', this.currentSession);
@@ -213,13 +212,12 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
         if (identity) {
           whoami.innerHTML = `
             <div style="text-align: left;">
-              <div style="font-size: 0.75em; color: #999; margin-bottom: 4px;">WordPress SSO</div>
               <div style="margin-bottom: 4px;">
                 <img src="${identity.user?.avatar || ''}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 16px; vertical-align: middle; margin-right: 8px;">
                 <strong>${identity.user?.display_name || identity.user?.username}</strong>
               </div>
               <div style="font-size: 0.85em; color: #666;">Blog: ${identity.blog?.display_name || identity.user?.username}</div>
-              <div style="font-size: 0.75em; color: #999;">${identity.user?.npub || identity.blog?.npub.slice(0, 16)}...</div>
+              <div style="font-size: 0.75em; color: #999;">${identity.user?.npub.slice(0, 16) || identity.blog?.npub.slice(0, 16)}...</div>
             </div>
           `;
         }
@@ -264,7 +262,16 @@ export class WordPressAuthPlugin extends AuthPluginInterface {
     return identity?.user?.display_name || null;
   }
 
-
+  /**
+   * Get priority for this auth plugin
+   * WordPress SSO should have higher priority than Nostr when active
+   * @returns {number} Priority (higher = preferred)
+   */
+  getPriority() {
+    // WordPress SSO has priority 20 (higher than Nostr's 10)
+    // This ensures WordPress is the primary auth when logged in
+    return 20;
+  }
 
   // Helper methods
   async getSession() {
