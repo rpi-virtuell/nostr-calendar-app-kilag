@@ -4,21 +4,30 @@ Eine kleine Vanilla‑JS Web‑App zum **Erstellen, Posten und Aktualisieren** v
 
 ## Features
 
-- **Authentifizierung**: 
+- **Authentifizierung**:
+  - **Plugin-basiertes Auth-System**: Modularer Aufbau mit AuthManager und AuthPluginInterface für verschiedene Auth-Methoden.
   - NIP‑07 (z. B. NOS2X, Alby) mit automatischer Erkennung und Fallback auf lokale Keys.
   - Manueller Login mit nsec-Key (Bech32 oder Hex), verschlüsselt mit Passwort (AES-GCM via WebCrypto) und persistent gespeichert (Cookie/localStorage, 30 Tage).
   - NIP‑46 (Bunker) Unterstützung mit interaktivem Modal für Connect-URI (bunker:// oder nostrconnect://), Auto-Reconnect, Popup für Auth-URL und Zwischenablage-Fallback.
+  - **WordPress SSO Integration**: Optionaler WordPress-Auth-Plugin für Single Sign-On in WordPress-Umgebungen.
   - Auto-Login nach User-Geste für gespeicherte Keys, SessionStorage für aktuelle Tab.
 
 - **Ansichten**:
   - **Karten-/Listenansicht**: Sortiert nach Startzeit, mit Karten-Layout (Titel, Datum, Ort, Summary, Tags, Bild-Cover), Edit-Button pro Event.
   - **Monatskalenderansicht**: Vollständiger Monatsgrid (6 Wochen), Events pro Tag mit Uhrzeit, Navigation (←/→), Cross-Month-Events sichtbar, Edit per Klick.
   - **Filter & Suche**: Tag-Filter (Chips mit Entfernen), Textsuche (Titel/Tags), Monatsfilter (Dropdown mit verfügbaren Monaten), dynamische Ergebnisanzeige.
+  - **Abonnements (NIP-51)**:
+    - Erstellen und Verwalten von Abonnementlisten für andere Nostr-Nutzer.
+    - Teilen von Abonnement-Listen via URL mit `d`-Parameter.
+    - Import/Export von Abonnement-Listen.
+    - Automatische Synchronisation mit Kontakten.
 
 - **Event-Formular**:
   - Vollständiges CRUD: Erstellen/Bearbeiten/Löschen (Status 'cancelled' als Replace).
   - Pflichtfelder: Titel, Start/Ende (lokale Zeitzone, ISO-Input).
   - Optionale Felder: Status (planned/cancelled), Ort, Summary (280 Zeichen), Markdown-Inhalt, Bild-URL, Tags (Chips mit ✕), 'd'-Tag für Replaceable.
+  - **Tag-Eingabe**: Enter-Taste fügt neue Tags hinzu, ohne das Formular abzusenden.
+  - **Event-Update**: Beibehaltung des 'd'-Tags beim Bearbeiten existierender Events.
   - **Markdown-Editor**: Toolbar für Bold (**), Italic (*), Link [text](url), Image ![alt](url); Live-Vorschau per Button (mdToHtml).
   - **Bild-Upload**: Drag&Drop/File-Input, Upload zu Blossom (POST /upload), Fallback NIP‑96 (signierter HTTP mit NIP-98), Data-URL (Demo), oder custom Endpoint.
 
@@ -33,8 +42,9 @@ Eine kleine Vanilla‑JS Web‑App zum **Erstellen, Posten und Aktualisieren** v
   - Aktionen: Copy-URL zu Clipboard, Delete (DELETE /delete?url= oder POST {url}), Preview-Modal (Img oder Iframe).
   - Upload: Drag&Drop-Zone oder File-Input, Multi-File, Refresh nach Upload.
 
-- **Theme-System**: 
+- **Theme-System**:
   - CSS-Variablen für light/dark/custom, persistent in localStorage, Select-Dropdown zum Wechseln.
+- **Responsive Design**: Mobile-optimierte Benutzeroberfläche mit Touch-Unterstützung.
 
 - **Nostr-Kern**:
   - **Events**: Kind 31923 (parameterized replaceable via 'd'-Tag), Deduping nach höchstem created_at, Fetch seit 1000 Tagen (authors-Filter optional).
@@ -45,8 +55,10 @@ Eine kleine Vanilla‑JS Web‑App zum **Erstellen, Posten und Aktualisieren** v
 - **Technik**:
   - ES6-Module, keine Build-Tools, saubere Trennung HTML/CSS/JS.
   - Vanilla JS, PWA-ready (statisch hostbar, file:// lokal).
+  - Modularer Aufbau mit Plugin-Architektur für Auth-Systeme.
   - Sicherheit: Lokale Keys nur Demo, verschlüsselter manueller Key, HTTPS/CSP empfohlen.
   - UI: Modals (Event-Form, Blossom, Preview, Progress), Buttons/Events (CustomEvents für Edit), Responsive (Viewport-Meta).
+  - **Error-Handling**: Robuste Fehlerbehandlung mit Retry-Mechanismen und Benutzerfeedback.
 
 ## Quickstart
 
@@ -69,6 +81,7 @@ Eine kleine Vanilla‑JS Web‑App zum **Erstellen, Posten und Aktualisieren** v
 - `blossom`: { endpoint: 'https://blossom.band' } – Host für Upload/List/Delete.
 - `nip46`: { connectURI: 'bunker://...' } – Vordefinierter Bunker-URI (UI-Override möglich).
 - `appTag`: ['client', 'nostr-calendar-demo'] – Für NIP-78 Tags.
+- `wordpress`: { enabled: false, apiUrl: '/wp-json/nostr-calendar/v1' } – WordPress SSO Konfiguration.
 
 ## NIP‑52 Update‑Mechanik
 
@@ -76,9 +89,11 @@ Kalendereinträge (Kind **31923**) sind **parameterized replaceable** via `d`‑
 
 ## Authentifizierung im Detail
 
+- **Plugin-Architektur**: AuthManager koordiniert verschiedene Auth-Plugins mit Prioritätssystem.
 - **NIP-07**: Automatisch via `window.nostr`, signEvent/getPublicKey.
 - **Manuell**: nsec-Input, Validierung (Bech32/Hex, 32 Bytes), Verschlüsselung mit PBKDF2/AES-GCM + Passwort, persistent (30 Tage), Auto-Decrypt nach Gesture.
 - **NIP-46/Bunker**: URI-Parsing, BunkerSigner mit onauth-Popup/Clipboard, Polling für getPublicKey (bis 45s), Relay-Preflight, Reconnect-Retry.
+- **WordPress SSO**: Integration mit WordPress-Authentifizierungssystem für nahtlosen Login in WordPress-Umgebungen.
 
 ## Bild‑Upload & NIP-96
 
@@ -100,6 +115,14 @@ Kalendereinträge (Kind **31923**) sind **parameterized replaceable** via `d`‑
 - **Upload**: Drag&Drop-Zone (Multi-File), File-Input-Fallback, Auto-Refresh nach Upload.
 - **Endpoint**: Konfigurierbar, /list für JSON-Array, Normalisierung (url/size/created/name/id).
 
+## Abonnements (NIP-51)
+
+- **Listen-Management**: Erstellen, Bearbeiten und Löschen von Abonnement-Listen.
+- **Teilen-Funktion**: Generieren von URLs mit `d`-Parameter zum Teilen von Listen.
+- **Import/Export**: Abonnements können importiert und exportiert werden.
+- **Auto-Sync**: Automatische Synchronisation mit Nostr-Kontakten.
+- **Priorität**: Abonnement-Listen haben Priorität gegenüber Config.allowedAuthors.
+
 ## Sicherheit & Produktion
 
 - Lokale/manuelle Keys **nur Demo** – Verwenden Sie NIP-07/NIP-46 in Production.
@@ -120,5 +143,9 @@ MIT
 - [x] Kachelansicht verbessern
 - [x] Mobile-Optimierungen: Touch-Handling für Calendar, responsive Modals.
 - [x] NIP-89 Support: Event-Attachments/Files integrieren.
-- [x] Error-Handling verbessern: Netzwerk-Fehler mit Retry-Button, Offline-Modus (IndexedDB).
+- [x] Plugin-basiertes Auth-System mit WordPress SSO Integration.
+- [x] Abonnements (NIP-51) für soziale Kalender-Freigabe.
+- [x] Verbesserte Tag-Eingabe mit Enter-Unterstützung.
+- [x] Event-Update mit d-Tag-Erhaltung.
 - [ ] i18n: Deutsche/Englische Texte, Locale für Datum/Uhrzeit.
+- [ ] Push-Benachrichtigungen für Event-Updates.
