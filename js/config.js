@@ -5,7 +5,7 @@ export const Config = {
   ],
   // Optional: auf bestimmte Autoren einschränken (npub, hex oder leer lassen)
   allowedAuthors: [
-    "54a340072ccc625516c8d572b638a828c5b857074511302fb4392f26e34e1913"
+    "523c77b32808e0decd1ff1029bc809f0c8b771d0a5bb5739ba58f26c4b3d7bfc"
   ],
   // Subscriptions-Speicher: Standard lokal für nicht angemeldete Nutzer.
   // Bei Anmeldung bevorzugt NIP-51 (parameterized replaceable list) mit eigenem d-Namen.
